@@ -1,0 +1,36 @@
+title:
+  Tiny ImageNet, 20 classes per task
+save_dir:
+  ICCV/TinyImageNet
+save_name:
+  TinyImageNet_TenTask
+results:
+  0:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/Oracle
+    name: Oracle
+  1:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/ours
+    name: Ours (0)
+  2:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/Oracle
+    name: Upper-Bound
+  3:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/base_2000
+    name: Naive Rehearsal (2000)
+  4:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/lwf_2000
+    name: LWF (2000)
+  5:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/e2e_2000
+    name: E2E (2000)
+  6:
+    file: outputs/ICCV-shuffled/coreset-free-replay-tentask/TinyImageNet/bic_2000
+    name: BiC (2000)
+split_size:
+  20
+num_tasks:
+  10
+xs:
+  Number of Accumulated Classes
+ys:
+  Test Accuracy (%)

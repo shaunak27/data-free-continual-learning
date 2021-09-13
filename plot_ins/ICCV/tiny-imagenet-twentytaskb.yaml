@@ -1,0 +1,42 @@
+title:
+  Tiny ImageNet, 10 classes per task
+save_dir:
+  ICCV/TinyImageNet
+save_name:
+  TinyImageNet_TwentyTaskB
+results:
+  0:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/Oracle
+    name: Oracle
+  1:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/ours
+    name: Ours
+  2:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/Oracle
+    name: Upper-Bound
+  3:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/dgr
+    name: DGR
+  4:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/deepinv
+    name: DeepInv
+  5:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/lwf-synthetic
+    name: LWF - Synthetic
+  6:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/base_0
+    name: Base
+  7:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/lwf_0
+    name: LWF
+  8:
+    file: outputs/ICCV-shuffled/coreset-free-replay-twentytask/TinyImageNet/lwf_mc
+    name: LWF.MC
+split_size:
+  10
+num_tasks:
+  20
+xs:
+  Number of Accumulated Classes
+ys:
+  Test Accuracy (%)
