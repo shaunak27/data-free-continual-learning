@@ -520,11 +520,13 @@ class iMNIST(iDataset):
 
         if self.train or self.validation:
             mnist = datasets.MNIST(root=self.root, train=True, download=self.download_flag, transform=None)
+            self.data = mnist.train_data
+            self.targets = mnist.train_labels
         else:
             mnist = datasets.MNIST(root=self.root, train=False, download=self.download_flag, transform=None)
-
-        self.data = mnist.data
-        self.targets = mnist.targets      
+            self.data = mnist.test_data
+            self.targets = mnist.test_labels
+              
         self.data = self.data.reshape(-1, 28, 28)
 
 class iKMNIST(iDataset):

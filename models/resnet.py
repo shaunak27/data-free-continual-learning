@@ -29,7 +29,7 @@ import torch.nn.init as init
 
 from torch.autograd import Variable
 
-__all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
+__all__ = ['ResNet', 'resnet18', 'resnet32']
 
 def _weights_init(m):
     classname = m.__class__.__name__
@@ -45,6 +45,11 @@ class LambdaLayer(nn.Module):
     def forward(self, x):
         return self.lambd(x)
 
+# Tensor: N * C * H * W 
+# BatchNorm: C
+# Me: C * H * W
+
+# Think more here and visualize for zsolt
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -101,18 +106,30 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, pen=False):
+    def features(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = F.avg_pool2d(out, out.size()[3])
         out = out.view(out.size(0), -1)
+        return out
+
+    def logits(self, x):
+        x = self.last(x)
+        return x
+
+    def forward(self, x, pen=False):
+        x = self.features(x)
         if pen:
-            return out
+            return x
         else:
-            out = self.last(out)
-            return out
+            x = self.logits(x)
+            return x
+
+    def penultimate(self, x):
+        x = self.features(x)
+        return x
 
 def resnet32(out_dim):
     return ResNet(BasicBlock, [5, 5, 5], num_classes=out_dim)
