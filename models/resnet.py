@@ -149,3 +149,33 @@ class BiasLayer(nn.Module):
     
     def printParam(self, i):
         print(i, self.alpha.item(), self.beta.item())
+
+class BiasModel(nn.Module):
+    def __init__(self, model):
+        super(BiasModel, self).__init__()
+        self.features = model
+        self.alpha = nn.Parameter(torch.ones((1), requires_grad=True, device="cuda"))
+        self.beta =  nn.Parameter(torch.zeros((1), requires_grad=True, device="cuda"))
+
+    def logits(self, x):
+        return torch.cat([x[:,:5] * self.alpha + self.beta, x[:,5:10]], dim=1)
+
+    def forward(self, x, pen=False, div=False):
+        if pen:
+            x = self.features.forward(x, pen=True, div=div)
+            self.size_array = self.features.size_array
+            return x
+        else:
+            x = self.features(x)
+            self.size_array = self.features.size_array
+            x = self.logits(x)
+            return x
+
+    def get_layer_forward(self, l, x):
+        return self.features.get_layer_forward(l, x)
+
+    def get_layer(self, l):
+        return self.features.get_layer(l)
+
+    def penultimate(self, x):
+        return self.features.forward(x, pen=True)

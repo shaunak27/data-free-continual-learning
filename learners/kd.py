@@ -11,7 +11,7 @@ import numpy as np
 import scipy as sp
 import scipy.linalg as linalg
 from models.layers import CosineScaling
-from models.resnet import BiasLayer
+from models.resnet import BiasLayer, BiasModel
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval
 from torch.optim import Optimizer
 import contextlib
@@ -34,6 +34,21 @@ from torch.autograd import Variable, Function
 import numpy as np
 import scipy as sp
 import scipy.linalg as linalg
+
+def power_iter(model, x, y, dim, n):
+    inputs = torch.randn((len(x),64), requires_grad = True, device = "cuda")
+    criterion = nn.CrossEntropyLoss()
+    model = model.cuda()
+    optimizer_di = torch.optim.Adam([inputs], lr=0.1)
+    for i in range(n):
+        optimizer_di.zero_grad()
+        model.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs[:,dim[0]:dim[1]], y.long() - dim[0])
+        loss.backward()
+        optimizer_di.step()
+
+    return x * 0 + inputs.detach()
 
 class MMD_loss(nn.Module):
     def __init__(self, kernel_mul = 2.0, kernel_num = 5):
@@ -187,6 +202,89 @@ class LWF(NormalNN):
     #           MODEL TRAINING               #
     ##########################################
 
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, filter_past = False, scale=False):
+
+        if model is None:
+            if task_metric == 'acc':
+                model = self.model
+            # elif task_metric == 'aux_task':
+            #     return self.aux_task(dataloader)
+            else:
+                return -1
+        if True:
+            # This function doesn't distinguish tasks.
+            batch_timer = Timer()
+            acc = AverageMeter()
+            batch_timer.tic()
+
+            orig_mode = model.training
+            model.eval()
+            for i, (input, target, task) in enumerate(dataloader):
+
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+
+                if filter_past:
+                    mask = target < self.last_valid_out_dim
+                    mask_ind = mask.nonzero().view(-1) 
+                    input = input[mask_ind]
+                    target = target[mask_ind]
+                if len(target) > 1 or not filter_past:
+                    if task_in is None:
+                        output = model.forward(input)[:, :self.valid_out_dim]
+                        acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+                    else:
+                        mask = target >= task_in[0]
+                        mask_ind = mask.nonzero().view(-1) 
+                        input, target = input[mask_ind], target[mask_ind]
+                        if len(mask_ind) > 0:
+
+                            mask = target < task_in[-1]
+                            mask_ind = mask.nonzero().view(-1) 
+                            input, target = input[mask_ind], target[mask_ind]
+                            if len(mask_ind) > 0:
+
+                                output = model.forward(input)[:, task_in]
+                                acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
+
+            if verbal:
+                self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
+                        .format(acc=acc, time=batch_timer.toc()))
+
+        else:
+            for scale in [5, 6, 7, 8, 9, 10]:
+                # This function doesn't distinguish tasks.
+                batch_timer = Timer()
+                acc = AverageMeter()
+                batch_timer.tic()
+
+                orig_mode = model.training
+                model.eval()
+                for i, (input, target, task) in enumerate(dataloader):
+
+                    if self.gpu:
+                        with torch.no_grad():
+                            input = input.cuda()
+                            target = target.cuda()
+
+                    if filter_past:
+                        mask = target < self.last_valid_out_dim
+                        mask_ind = mask.nonzero().view(-1) 
+                        input = input[mask_ind]
+                        target = target[mask_ind]
+                    if len(target) > 1 or not filter_past:
+                        output = model.forward(input)[:, :self.valid_out_dim]
+                        output[:,:self.last_valid_out_dim] = output[:,:self.last_valid_out_dim] + scale
+                        acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+                
+                if verbal:
+                    self.log(' * Val Acc {acc.avg:.3f}, Total time {time:.2f}'
+                            .format(acc=acc, time=batch_timer.toc()))
+        model.train(orig_mode)
+        return acc.avg
+
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
         
         # try to load model
@@ -197,6 +295,10 @@ class LWF(NormalNN):
                 need_train = False
             except:
                 pass
+
+            # # JAMES HERE
+            if not self.first_task:
+                self.model = BiasModel(self.model)
 
         # trains
         if need_train:
@@ -210,7 +312,8 @@ class LWF(NormalNN):
             # Evaluate the performance of current task
             self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=0,total=self.config['schedule'][-1]))
             if val_loader is not None:
-                self.validation(val_loader)
+                self.validation(val_loader, scale=True)
+                self.validation(val_loader, filter_past = True, scale=True)
         
             losses = [AverageMeter() for l in range(3)]
             acc = AverageMeter()
@@ -262,6 +365,7 @@ class LWF(NormalNN):
                 # Evaluate the performance of current task
                 if val_loader is not None:
                     self.validation(val_loader)
+                    self.validation(val_loader, filter_past = True)
 
                 # reset
                 losses = [AverageMeter() for l in range(3)]
@@ -401,489 +505,13 @@ class LWF_FR(LWF):
         self.optimizer.step()
         return total_loss.detach(), loss_class.detach(), loss_distill.detach(), logits
 
-class LWF_FRB_OC(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_OC, self).__init__(learner_config)
-        self.oc_criterion = OLELoss.apply
-        self.kd_criterion = nn.MSELoss()
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        # if not self.KD:
-        #     logits = self.forward(inputs)
-        # else:
-        #     #logits = self.model.last(self.model.forward(x=inputs, pen=True).detach())
-        #     logits = self.model.adaptive_forward(inputs)
-        logits = self.forward(inputs)
-        loss_class = self.criterion(logits, targets.long(), dw_cls)
-        total_loss = loss_class
-
-        # OC - Old
-        loss_oc = 0
-        kd_mask = targets >= self.last_valid_out_dim
-        kd_ind = kd_mask.nonzero().view(-1) 
-        current_pen, bd = self.model.forward(x=inputs[kd_ind], pen=True, div = True)
-        nl = len(current_pen)
-        for l in range(nl):
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-                bd_j = 0
-                for j in range(bd):
-                    if j > b:
-                        loss_oc = torch.pow(torch.tensordot(current_pen[l][:,bd_i:bd_i+int(h/bd)],current_pen[l][:,bd_j:bd_j+int(h/bd)],dims=([1],[1])).sum(dim=1),2).mean() + loss_oc
-                        # oc = torch.tensordot(current_pen[l][:,bd_i:bd_i+int(h/bd)],current_pen[l][:,bd_j:bd_j+int(h/bd)],dims=([1],[1])).sum(dim=1).mean()
-                        # if oc > 0:
-                        #     loss_oc = oc + loss_oc
-                    bd_j += int(h/bd)
-                bd_i += int(h/bd)
-        total_loss += loss_oc * 1e-6
-
-        # # OC
-        # loss_oc = 0
-        # current_pen, hbd = self.model.forward(x=inputs, pen=True, div = True)
-        # nl = len(current_pen)
-        # for l in range(nl):
-        #     h = len(current_pen[l][0])
-        #     bd_i = 0
-        #     x_ = []
-        #     y_ = []
-        #     for b in range(bd):
-        #         x_.append(current_pen[l][:,bd_i:bd_i+int(h/bd)])
-        #         y_.append(torch.zeros((len(inputs),), requires_grad=True).cuda() + b)
-        #         bd_i += int(h/bd)
-        #     a = torch.cat(x_, dim=0)
-        #     b = torch.cat(y_, dim=0)
-        #     loss_oc = self.oc_criterion(torch.cat(x_, dim=0), torch.cat(y_, dim=0)) + loss_oc
-        # total_loss += 0.01 * loss_oc[0]
-
-        # KD
-        # if False:
-        if self.KD and target_KD is not None:
-        # if False:
-
-            kd_mask = targets < self.last_valid_out_dim
-            kd_ind = kd_mask.nonzero().view(-1) 
-            current_pen, bd = self.model.forward(x=inputs[kd_ind], pen=True, div = True)
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs[kd_ind], pen=True, div = True)
-            loss_distill = 0
-            nl = len(current_pen)
-            for l in range(nl):
-                bd_i = 0
-                h = len(current_pen[l][0])
-                for b in range(bd):
-                    loss_distill = self.kd_criterion(current_pen[l][:,bd_i:bd_i+int(h/bd)],past_pen[l][:,bd_i:bd_i+int(h/bd)]).mean() / bd + loss_distill
-                    bd_i += int(h/bd)
-            total_loss += self.mu * loss_distill / nl
-        else:
-            loss_distill = torch.zeros((1,), requires_grad=True).cuda()
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_distill.detach(), logits
-
-class LWF_FRB_DF_MMD(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_MMD, self).__init__(learner_config)
-        self.oc_criterion = OLELoss.apply
-        self.kd_criterion = nn.MSELoss()
-        self.mmd_loss = MMD_loss()
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        
-        # freeze layer
-        l_freeze = 1
-
-        # dirty freezing
-        if not self.first_task:
-
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-            past = past_pen[l_freeze].detach()
-            for l in range(l_freeze,3):
-                past = self.model.get_layer_forward(l+1,past.view(self.previous_teacher.solver.size_array[l]))
-            logits = self.model.last.forward(past.view(past.size(0),-1))[:, :self.valid_out_dim]
-
-            target = get_one_hot(targets, self.valid_out_dim)
-            target_KD = F.softmax(target_KD, dim=1)
-            target[:, :self.last_valid_out_dim] = target_KD
-
-            log_logits= F.log_softmax(logits, dim=1)
-
-            KD_loss_unnorm = -(target * log_logits)
-            KD_loss_unnorm = KD_loss_unnorm.sum(dim=1)
-            loss_class= KD_loss_unnorm.mean()
-        
-        else:
-            logits = self.forward(inputs)
-            loss_class = self.criterion(logits, targets.long(), dw_cls)
-
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-        nl = len(current_pen)
-        next_layer_in = {}
-        for l in range(0,nl):
-
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-
-                # get output to layer
-                block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-                # get input to layer
-                if l > 1:
-                    block_in_dim = next_layer_in[b]
-                
-                # first loss is distribution constrain
-                if l >= l_freeze:
-
-                    block_target = torch.randn(block_out.size()).cuda()
-                    loss_dist = self.mmd_loss(block_out,block_target)  + loss_dist
-
-                if l >= l_freeze + 1:
-                    # second loss is sampling, after first task
-                    if not self.first_task:
-                        block_in = torch.randn(self.model.size_array[l-1]).cuda()
-                        current = self.model.get_layer(l)[b].forward(block_in)
-                        past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-                        loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-  
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-        # total loss
-        loss_dist = loss_dist / (bd * nl)
-        loss_kd = self.mu * loss_kd / (bd * nl)
-        # scaling
-        loss_dist = loss_dist * 1
-
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_kd # next step - introduce covariance structure! Reuse first task models (duplicate) to get results in time for meeting :)
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits
-
-class LWF_FRB_DF_MMD_COV(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_MMD_COV, self).__init__(learner_config)
-        self.oc_criterion = OLELoss.apply
-        self.kd_criterion = nn.MSELoss()
-        self.mmd_loss = MMD_loss()
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        
-        # freeze layer
-        l_freeze = 1
-
-        # dirty freezing
-        if not self.first_task:
-
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-            past = past_pen[l_freeze].detach()
-            for l in range(l_freeze,3):
-                past = self.model.get_layer_forward(l+1,past.view(self.previous_teacher.solver.size_array[l]))
-            logits = self.model.last.forward(past.view(past.size(0),-1))[:, :self.valid_out_dim]
-
-            target = get_one_hot(targets, self.valid_out_dim)
-            target_KD = F.softmax(target_KD, dim=1)
-            target[:, :self.last_valid_out_dim] = target_KD
-
-            log_logits= F.log_softmax(logits, dim=1)
-
-            KD_loss_unnorm = -(target * log_logits)
-            KD_loss_unnorm = KD_loss_unnorm.sum(dim=1)
-            loss_class= KD_loss_unnorm.mean()
-        
-        else:
-            logits = self.forward(inputs)
-            loss_class = self.criterion(logits, targets.long(), dw_cls)
-
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-        nl = len(current_pen)
-        next_layer_in = {}
-        for l in range(0,nl):
-
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-
-                # get output to layer
-                block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-                # get input to layer
-                if l > 1:
-                    block_in_dim = next_layer_in[b]
-                
-                # first loss is distribution constrain
-                if l >= l_freeze:
-                    block_cov = cov(block_out)
-                    loss_dist_add = torch.pow(block_out.sum(dim=0),2).mean() + torch.pow(block_cov - torch.eye(block_cov.size(0)).cuda(),2).mean()
-                    loss_dist = loss_dist_add  + loss_dist
-
-                if l >= l_freeze + 1:
-                    # second loss is sampling, after first task
-                    if not self.first_task:
-                        block_in = torch.randn(self.model.size_array[l-1]).cuda()
-                        current = self.model.get_layer(l)[b].forward(block_in)
-                        past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-                        loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-  
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-        # total loss
-        loss_dist = 1 * loss_dist / (bd * nl)
-        loss_kd = self.mu * loss_kd / (bd * nl)
-        # scaling
-        loss_dist = loss_dist * 1
-
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_kd # next step - introduce covariance structure! Reuse first task models (duplicate) to get results in time for meeting :)
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits
-
-class LWF_FRB_DF_MMD_VAR(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_MMD_VAR, self).__init__(learner_config)
-        self.oc_criterion = OLELoss.apply
-        self.kd_criterion = nn.MSELoss()
-        self.mmd_loss = MMD_loss()
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        
-        # freeze layer
-        l_freeze = 1
-
-        # dirty freezing
-        if not self.first_task:
-
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-            past = past_pen[l_freeze].detach()
-            for l in range(l_freeze,3):
-                past = self.model.get_layer_forward(l+1,past.view(self.previous_teacher.solver.size_array[l]))
-            logits = self.model.last.forward(past.view(past.size(0),-1))[:, :self.valid_out_dim]
-
-            target = get_one_hot(targets, self.valid_out_dim)
-            target_KD = F.softmax(target_KD, dim=1)
-            target[:, :self.last_valid_out_dim] = target_KD
-
-            log_logits= F.log_softmax(logits, dim=1)
-
-            KD_loss_unnorm = -(target * log_logits)
-            KD_loss_unnorm = KD_loss_unnorm.sum(dim=1)
-            loss_class= KD_loss_unnorm.mean()
-        
-        else:
-            logits = self.forward(inputs)
-            loss_class = self.criterion(logits, targets.long(), dw_cls)
-
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-        nl = len(current_pen)
-        next_layer_in = {}
-        for l in range(0,nl):
-
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-
-                # get output to layer
-                block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-                # get input to layer
-                if l > 1:
-                    block_in_dim = next_layer_in[b]
-                
-                # first loss is distribution constrain
-                if l >= l_freeze:
-                    block_cov = cov(block_out)
-                    loss_dist_add = torch.pow(block_out.mean(dim=0),2).mean() + torch.pow(block_out.var(dim=0),2).mean()
-                    loss_dist = loss_dist_add  + loss_dist
-
-                if l >= l_freeze + 1:
-                    # second loss is sampling, after first task
-                    if not self.first_task:
-                        block_in = torch.randn(self.model.size_array[l-1]).cuda()
-                        current = self.model.get_layer(l)[b].forward(block_in)
-                        past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-                        loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-  
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-        # total loss
-        loss_dist = 1 * loss_dist / (bd * nl)
-        loss_kd = self.mu * loss_kd / (bd * nl)
-        # scaling
-        loss_dist = loss_dist * 1
-
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_kd # next step - introduce covariance structure! Reuse first task models (duplicate) to get results in time for meeting :)
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits
-
-class LWF_FRB_DF_MMD_PRO(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_MMD_PRO, self).__init__(learner_config)
-        self.oc_criterion = OLELoss.apply
-        self.kd_criterion = nn.MSELoss()
-        self.mmd_loss = MMD_loss()
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        
-        # freeze layer
-        l_freeze = 1
-
-        # dirty freezing
-        if not self.first_task:
-
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-            past = past_pen[l_freeze].detach()
-            for l in range(l_freeze,3):
-                past = self.model.get_layer_forward(l+1,past.view(self.previous_teacher.solver.size_array[l]))
-            logits = self.model.last.forward(past.view(past.size(0),-1))[:, :self.valid_out_dim]
-            
-            # loss class
-            logits_append = []
-            targets_append = []
-            npc = int(len(targets) / (self.valid_out_dim - self.last_valid_out_dim))
-            for c in range(self.last_valid_out_dim):
-                targets_append.append(c * torch.ones((npc,)).cuda())
-                logits_to_append = (torch.randn((npc,128), requires_grad = True).cuda() - 0.5)*1e-2 + self.previous_teacher.solver.last.weight.data[c]
-                logits_to_append = self.model.last.forward(logits_to_append.view(logits_to_append.size(0),-1))
-                logits_append.append(logits_to_append)
-            logits_append = torch.cat(logits_append)
-            targets_append = torch.cat(targets_append)
-            loss_class = self.criterion(torch.cat([logits, logits_append]), torch.cat([targets.long(), targets_append.long()]), torch.ones((len(targets)+len(targets_append),)).cuda())
-        
-        else:
-            logits = self.forward(inputs)
-            loss_class = self.criterion(logits, targets.long(), dw_cls)
-
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-        nl = len(current_pen)
-        next_layer_in = {}
-        for l in range(0,nl):
-
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-
-                # get output to layer
-                block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-                # get input to layer
-                if l > 1:
-                    block_in_dim = next_layer_in[b]
-                
-                # first loss is distribution constrain
-                if l >= l_freeze: # james here, you changed this to do last layer too!!
-
-                    block_target = torch.randn(block_out.size()).cuda()
-                    loss_dist = self.mmd_loss(block_out,block_target)  + loss_dist
-
-                if l >= l_freeze + 1:
-                    # second loss is sampling, after first task
-                    if not self.first_task:
-                        block_in = torch.randn(self.model.size_array[l-1], requires_grad = True).cuda()
-                        current = self.model.get_layer(l)[b].forward(block_in)
-                        past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-                        loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-  
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-        # total loss
-        loss_dist = loss_dist / (bd * nl)
-        loss_kd = self.mu * loss_kd / (bd * nl)
-        # scaling
-        loss_dist = loss_dist * 1
-
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_kd # next step - introduce covariance structure! Reuse first task models (duplicate) to get results in time for meeting :)
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits
-
-
-
-
 class LWF_FRB_DF(LWF):
 
     def __init__(self, learner_config):
         super(LWF_FRB_DF, self).__init__(learner_config)
         self.oc_criterion = OLELoss.apply
         self.kd_criterion = nn.MSELoss()
+        self.mmd_loss = MMD_loss()
 
     def update_model(self, inputs, targets, target_KD = None):
 
@@ -892,26 +520,32 @@ class LWF_FRB_DF(LWF):
         else:
             dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         
-        # dirty freezing
-        if not self.KD:
-            logits = self.forward(inputs)
-        else:
-            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-            past = past_pen[2]
-            logits = self.model.get_layer_forward(3,past.view(self.previous_teacher.solver.size_array[2]))
-            logits = self.model.last.forward(logits.view(logits.size(0),-1))
+        # freeze layer
+        l_freeze = 2
 
-        loss_class = self.criterion(logits, targets.long(), dw_cls)
+        # dirty freezing
+        if not self.first_task:
+            # JAMES HERE
+            past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
+            # past = past_pen[l_freeze].detach()
+            # for l in range(l_freeze,3):
+            #     past = self.model.get_layer_forward(l+1,past.view(self.previous_teacher.solver.size_array[l]))
+            # logits = self.model.last.forward(past.view(past.size(0),-1))[:, :self.valid_out_dim]
+            # loss_class = self.n_task_class_loss(inputs, logits, past, targets, target_KD, dw_cls)
+            loss_class = self.n_task_class_loss(inputs, -1, -1, targets, -1, dw_cls)
+        
+        else:
+            logits = self.forward(inputs)
+            loss_class = self.criterion(logits, targets.long(), dw_cls)
 
         # Constrain to distribution
-        loss_dist = 0
-        loss_kd = 0
+        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
+        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
         current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
         nl = len(current_pen)
         next_layer_in = {}
         for l in range(0,nl):
 
-            
             h = len(current_pen[l][0])
             bd_i = 0
             for b in range(bd):
@@ -924,71 +558,218 @@ class LWF_FRB_DF(LWF):
                     block_in_dim = next_layer_in[b]
                 
                 # first loss is distribution constrain
-                if l == nl-2:
-                    mean = torch.mean(block_out,dim=0)
-                    var = torch.var(block_out,dim=0)
-                    loss_dist = torch.norm(mean) + torch.norm(var - 1.0) + loss_dist
+                if l >= l_freeze:
+                    loss_dist = self.dist_loss(block_out) + loss_dist
 
-                if l == nl-1:
+                if l >= l_freeze + 1:
                     # second loss is sampling, after first task
-                    if self.KD:
+                    if not self.first_task:
                         block_in = torch.randn(self.model.size_array[l-1]).cuda()
                         current = self.model.get_layer(l)[b].forward(block_in)
                         past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
                         loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-
+  
                 # save output as input to next layer
                 next_layer_in[b] = block_out.size()
 
                 # increment block
                 bd_i += int(h/bd)
-        # for l in range(nl-2,nl):
-
-        #     # just first layer KD on real images
-        #     if l == 0 and self.KD:
-        #         past_pen, bd = self.previous_teacher.solver.forward(x=inputs, pen=True, div = True)
-        #         loss_kd = bd * nl * self.kd_criterion(current_pen[0], past_pen[0]).mean() + loss_kd
-
-        #     else:
-
-        #         h = len(current_pen[l][0])
-        #         bd_i = 0
-        #         for b in range(bd):
-
-        #             # get output to layer
-        #             block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-        #             # get input to layer
-        #             if l > 1:
-        #                 block_in_dim = next_layer_in[b]
-                    
-        #             # first loss is distribution constrain
-        #             mean = torch.mean(block_out,dim=0)
-        #             var = torch.var(block_out,dim=0)
-        #             loss_dist = torch.norm(mean) + torch.norm(var - 1.-) + loss_dist
-
-        #             # second loss is sampling, after first task
-        #             if l > 1 and self.KD:
-        #                 block_in = torch.randn(self.model.size_array[l-1]).cuda()
-        #                 current = self.model.get_layer(l)[b].forward(block_in)
-        #                 past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-        #                 loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1)).mean() + loss_kd
-
-        #             # save output as input to next layer
-        #             next_layer_in[b] = block_out.size()
-
-        #             # increment block
-        #             bd_i += int(h/bd)
 
         # total loss
         loss_dist = loss_dist / (bd * nl)
-        loss_kd = loss_kd / (bd * nl)
-        total_loss = loss_class + self.mu * loss_kd + loss_dist
+        loss_kd = self.mu * loss_kd / (bd * nl)
+
+        # scaling
+        loss_dist = loss_dist * 1e-1
+
+        if self.first_task:
+            total_loss = loss_class# + loss_dist
+        else:
+            total_loss = loss_class# + loss_kd
 
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_dist.detach(), logits
+
+        # JAMES HERE
+        with torch.no_grad():
+            logits = self.forward(inputs)
+        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
+
+
+    def n_task_class_loss(self, inputs, logits, past, targets, target_KD, dw_cls):
+        target = get_one_hot(targets, self.valid_out_dim)
+        target_KD = F.softmax(target_KD, dim=1)
+        target[:, :self.last_valid_out_dim] = target_KD
+
+        log_logits= F.log_softmax(logits, dim=1)
+
+        KD_loss_unnorm = -(target * log_logits)
+        KD_loss_unnorm = KD_loss_unnorm.sum(dim=1)
+        loss_class = KD_loss_unnorm.mean()
+        return loss_class
+
+    def dist_loss(self,block_out):
+
+        block_target = torch.randn(block_out.size()).cuda()
+        loss_dist = self.mmd_loss(block_out,block_target)
+        return loss_dist
+
+class LWF_FRB_DF_MMD(LWF_FRB_DF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DF_MMD, self).__init__(learner_config)
+
+class LWF_FRB_DF_LOCAL(LWF_FRB_DF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DF_LOCAL, self).__init__(learner_config)
+
+    # def n_task_class_loss(self, inputs, logits, past, targets, target_KD, dw_cls):
+        
+    #     loss_class = self.criterion(logits[:,self.last_valid_out_dim:self.valid_out_dim], targets.long() - self.last_valid_out_dim, dw_cls)
+        
+    #     # ft loss
+    #     x = past.view(past.size(0),-1).detach() + 0
+    #     y = torch.randint(low=0, high=self.last_valid_out_dim, size=(len(inputs),)).cuda()
+    #     x = power_iter(copy.deepcopy(self.previous_teacher.solver.last), x, y, [0, self.last_valid_out_dim], 10)
+    #     # xb = torch.randn((len(inputs),64), requires_grad = True).cuda()
+    #     # yb = torch.randint(low=self.last_valid_out_dim, high=self.valid_out_dim, size=(len(inputs),)).cuda()
+    #     # xb = power_iter(copy.deepcopy(self.model.last), xb, yb, [self.last_valid_out_dim, self.valid_out_dim], 10)
+    #     xb = past.view(past.size(0),-1).detach() + 0
+    #     yb = targets
+
+    #     x_com = torch.cat([x, xb])
+    #     logits_com = self.model.last.forward(x_com)[:,:self.valid_out_dim]
+    #     targets_com = torch.cat([y, yb])
+    #     loss_class = loss_class + self.criterion(logits_com, targets_com, self.dw_k[-1 * torch.ones(targets_com.size()).long()])
+
+    #     loss_class = loss_class + self.kd_criterion(self.previous_teacher.solver.last(past.view(past.size(0),-1))[:,:self.last_valid_out_dim], target_KD[:,:self.last_valid_out_dim]).mean()
+    #     return loss_class
+
+    def n_task_class_loss(self, inputs, logits, past, targets, target_KD, dw_cls):
+        
+        # ft loss
+        x = torch.randn((len(inputs),64), requires_grad = True).cuda()
+        y = torch.randint(low=0, high=self.last_valid_out_dim, size=(len(inputs),)).cuda()
+        # x = power_iter(copy.deepcopy(self.previous_teacher.solver.last), x, y, [0, self.last_valid_out_dim], 10)
+        xb = torch.randn((len(inputs),64), requires_grad = True).cuda()
+        yb = torch.randint(low=self.last_valid_out_dim, high=self.valid_out_dim, size=(len(inputs),)).cuda()
+        # xb = power_iter(copy.deepcopy(self.previous_teacher.solver.last), xb, yb, [self.last_valid_out_dim, self.valid_out_dim], 10)
+
+        x_com = torch.cat([x, xb])
+        # x_com = self.model.forward(inputs, pen=True)
+        logits_com = self.model.logits(self.model.features.last.forward(x_com).detach())[:,:self.valid_out_dim]
+        targets_com = torch.cat([y, yb])
+        #targets_com = targets
+        loss_class = self.criterion(logits_com, targets_com, self.dw_k[-1 * torch.ones(targets_com.size()).long()])
+
+        # target_KD, _ = self.previous_teacher.generate_scores(inputs, allowed_predictions=np.arange(self.valid_out_dim))
+        # kd_logits_a = self.previous_teacher.solver.last(past.view(past.size(0),-1))[:,:self.last_valid_out_dim]
+        # kd_logits_b = self.previous_teacher.solver.last(past.view(past.size(0),-1))[:,self.last_valid_out_dim:self.valid_out_dim]
+        # loss_class = loss_class + loss_fn_kd(kd_logits_a, target_KD[:,:self.last_valid_out_dim], dw_cls, np.arange(self.last_valid_out_dim).tolist(), self.DTemp)
+        # loss_class = loss_class + loss_fn_kd(kd_logits_b, target_KD[:,self.last_valid_out_dim:self.valid_out_dim], dw_cls, np.arange(self.valid_out_dim - self.last_valid_out_dim).tolist(), self.DTemp)
+        return loss_class
+
+class LWF_FRB_DF_MMD_COV(LWF_FRB_DF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DF_MMD_COV, self).__init__(learner_config)
+
+    def dist_loss(self,block_out):
+        block_cov = cov(block_out)
+        loss_dist = torch.pow(block_out.sum(dim=0),2).mean() + torch.pow(block_cov - torch.eye(block_cov.size(0)).cuda(),2).mean()
+        return loss_dist
+
+
+class LWF_FRB_DF_MMD_VAR(LWF_FRB_DF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DF_MMD_VAR, self).__init__(learner_config)
+
+    def dist_loss(self,block_out):
+        loss_dist = torch.pow(block_out.mean(dim=0),2).mean() + torch.pow(block_out.var(dim=0),2).mean()
+        return loss_dist
+
+class LWF_FRB_DF_MMD_PRO(LWF_FRB_DF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DF_MMD_PRO, self).__init__(learner_config)
+
+    def n_task_class_loss(self, inputs, logits, past, targets, target_KD, dw_cls):
+            
+        # loss class
+        logits_append = []
+        targets_append = []
+        npc = int(len(targets) / (self.valid_out_dim - self.last_valid_out_dim))
+        for c in range(self.last_valid_out_dim):
+            targets_append.append(c * torch.ones((npc,)).cuda())
+            logits_to_append = (torch.randn((npc,64), requires_grad = True).cuda() - 0.5)*1e-0 + self.previous_teacher.solver.last.weight.data[c]
+            # logits_to_append = self.model.last.forward(logits_to_append.view(logits_to_append.size(0),-1))
+            logits_append.append(logits_to_append)
+        
+        logits_append = torch.cat(logits_append)
+        logits_append_out = self.model.last.forward(logits_append.view(logits_append.size(0),-1))
+        targets_append = torch.cat(targets_append)
+        loss_class = self.criterion(torch.cat([logits, logits_append_out]), torch.cat([targets.long(), targets_append.long()]), torch.ones((len(targets)+len(targets_append),)).cuda())
+        loss_class = loss_class + self.kd_criterion(logits_append_out[:self.last_valid_out_dim], self.previous_teacher.solver.last.forward(logits_append.view(logits_append.size(0),-1))[:self.last_valid_out_dim]).mean()
+        return loss_class
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class LWF_FRB(LWF):
 
