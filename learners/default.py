@@ -6,7 +6,6 @@ from torch.nn import functional as F
 from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
-import libmr
 import numpy as np
 from models.layers import CosineScaling
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval, calculate_cka
@@ -292,9 +291,9 @@ class NormalNN(nn.Module):
             tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, clusters = self.centers_torch.cpu().detach().numpy())
 
 
-        # # pca for in and out of distribution data
-        # title = 'PCA - Task ' + str(task+1)
-        # embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
+        # pca for in and out of distribution data
+        title = 'PCA - Task ' + str(task+1)
+        embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
         
         return embedding
 

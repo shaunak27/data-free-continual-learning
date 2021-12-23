@@ -9,9 +9,10 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 import torch
-import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+import seaborn as sn
+import pandas as pd
 
 # # Say, "the default sans-serif font is COMIC SANS"
 # matplotlib.rcParams['font.sans-serif'] = "Consolas"
@@ -314,20 +315,20 @@ def pca_eval(X_in, Y, save_name, title, num_colors, embedding, clusters=None):
 
 def confusion_matrix_vis(y_pred, y_true, save_name, title):
 
-    # # confusion matrix
-    # cm_array = np.asarray(confusion_matrix(y_true, y_pred))
+    # confusion matrix
+    cm_array = np.asarray(confusion_matrix(y_true, y_pred))
 
-    # # csv file
-    # np.savetxt(save_name+'confusion_matrix.csv', cm_array, delimiter=",", fmt='%.0f')
+    # csv file
+    np.savetxt(save_name+'confusion_matrix.csv', cm_array, delimiter=",", fmt='%.0f')
 
-    # # png file
-    # df_cm = pd.DataFrame(cm_array, index = [str(i) for i in range(len(cm_array))],
-    #               columns = [str(i) for i in range(len(cm_array))])
-    # plt.figure(figsize=(7,7))
-    # sn.set(font_scale=1.4) # for label size
-    # sn.heatmap(df_cm, annot=True, annot_kws={"size": 6}) # font size
-    # plt.savefig(save_name+'confusion_matrix.png')  
-    # plt.close()
+    # png file
+    df_cm = pd.DataFrame(cm_array, index = [str(i) for i in range(len(cm_array))],
+                  columns = [str(i) for i in range(len(cm_array))])
+    plt.figure(figsize=(7,7))
+    sn.set(font_scale=1.4) # for label size
+    sn.heatmap(df_cm, annot=True, annot_kws={"size": 6}) # font size
+    plt.savefig(save_name+'confusion_matrix.png')  
+    plt.close()
     pass
 
 

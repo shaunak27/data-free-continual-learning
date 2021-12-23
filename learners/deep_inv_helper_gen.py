@@ -22,7 +22,6 @@ class Teacher(nn.Module):
 
     def __init__(self, solver, generator, gen_opt, img_shape, iters, class_idx, deep_inv_params, var, mean, student = True, train = True, config=None):
         '''Instantiate a new Teacher-object.
-
         [solver]:      <Solver> for classifying images'''
 
         super().__init__()
@@ -75,10 +74,8 @@ class Teacher(nn.Module):
 
     def sample(self, size, device, student, student_head, num_k_new, return_scores=False, step=False):
         '''Generate [size] samples from the model. Outputs are tensors (not "requiring grad"), on same device as <self>.
-
         INPUT:  - [allowed_predictions] <list> of [class_ids] which are allowed to be predicted
                 - [return_scores]       <bool>; if True, [y_hat] is also returned
-
         OUTPUT: - [X]     <4D-tensor> generated images
                 - [y]     <1D-tensor> predicted corresponding labels
                 - [y_hat] <2D-tensor> predicted "logits"/"scores" for all [allowed_predictions]'''

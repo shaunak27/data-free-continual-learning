@@ -6,4 +6,3 @@ from . import resnet_srb
 from . import autoencoder
 from . import generator
 from . import modified_linear
-from . import resnet_torch

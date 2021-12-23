@@ -6,7 +6,6 @@ from torch.nn import functional as F
 from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
-import libmr
 import numpy as np
 from models.layers import CosineScaling
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval, tsne_eval_new, cka_plot, calculate_cka
@@ -23,7 +22,6 @@ import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 from torch.optim import SGD, Adam
 from utils.schedulers import CosineSchedule
-from utils.distance import MMD
 
 FREEZE_BN = False
 
@@ -567,13 +565,8 @@ class DeepInversionGenBN(NormalNN):
         # print('sanity check a - ' + str(calculate_cka(X_real_a, X_real_a[::-1])))
         # print('sanity check b - ' + str(calculate_cka(X_gen_a, X_gen_a)))
 
-        # cka_domain = np.linalg.norm((np.mean(X_real_a, axis=0) - np.mean(X_gen_a, axis=0))/np.std(X_real_a, axis=0)) # / np.linalg.norm(np.mean(X_real_a, axis=0))
-        # cka_real = np.linalg.norm((np.mean(X_real_a, axis=0) - np.mean(X_real_b, axis=0))/np.std(X_real_a, axis=0)) # / np.linalg.norm(np.mean(X_real_a, axis=0))
-
-        # mmd
-        cka_domain = MMD(torch.from_numpy(X_real_a).double(), torch.from_numpy(X_gen_a).double())
-        cka_real = MMD(torch.from_numpy(X_real_a).double(), torch.from_numpy(X_real_b).double())
-
+        cka_domain = np.linalg.norm((np.mean(X_real_a, axis=0) - np.mean(X_gen_a, axis=0))/np.std(X_real_a, axis=0)) # / np.linalg.norm(np.mean(X_real_a, axis=0))
+        cka_real = np.linalg.norm((np.mean(X_real_a, axis=0) - np.mean(X_real_b, axis=0))/np.std(X_real_a, axis=0)) # / np.linalg.norm(np.mean(X_real_a, axis=0))
         print('domain - ' + str(cka_domain))
         print('content - ' + str(cka_real))
         
@@ -598,8 +591,9 @@ class DeepInversionGenBN(NormalNN):
 
         # plot
         cka_plot(ckadir+'cka.png', np.asarray(self.cka_holder[0]), [np.asarray(self.cka_holder[1]),np.asarray(self.cka_holder[2])], ['Real T1 vs Synthetic T1','Real T1 vs Real T2'])
+        # print(done)
         # # turn off
-        # if self.epoch >= 49: print(apple)
+        # if self.epoch >= 99: print(apple)
 
         # for vis
         self.x_gen = x_gen_cur; self.y_gen = -1 - y_gen; self.y_gen_pred = y_gen_pred

@@ -1,4 +1,3 @@
-
 '''
 Properly implemented ResNet-s for CIFAR10 as described in paper [1].
 The implementation and structure of this file is hugely influenced by [2]
@@ -29,7 +28,7 @@ import torch.nn.init as init
 
 from torch.autograd import Variable
 
-__all__ = ['ResNet', 'resnet18', 'resnet32']
+__all__ = ['ResNet', 'resnet20', 'resnet32', 'resnet44', 'resnet56', 'resnet110', 'resnet1202']
 
 def _weights_init(m):
     classname = m.__class__.__name__
@@ -45,11 +44,6 @@ class LambdaLayer(nn.Module):
     def forward(self, x):
         return self.lambd(x)
 
-# Tensor: N * C * H * W 
-# BatchNorm: C
-# Me: C * H * W
-
-# Think more here and visualize for zsolt
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -106,6 +100,49 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def forward(self, x, pen=False):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = F.avg_pool2d(out, out.size()[3])
+        out = out.view(out.size(0), -1)
+        if pen:
+            return out
+        else:
+            out = self.last(out)
+            return out
+
+
+
+
+class ResNet_h(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=10):
+        super(ResNet_h, self).__init__()
+        self.in_planes = 16
+
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.last = nn.Linear(64, num_classes)
+
+        self.apply(_weights_init)
+
+        self.last_0 = nn.Linear(16, num_classes)
+        self.last_1 = nn.Linear(16, num_classes)
+        self.last_2 = nn.Linear(32, num_classes)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+
+        return nn.Sequential(*layers)
+
     def features(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
@@ -115,26 +152,54 @@ class ResNet(nn.Module):
         out = out.view(out.size(0), -1)
         return out
 
-    def logits(self, x):
-        x = self.last(x)
-        return x
+    def features_h(self, x):
+        self.size_array = []
+        out = F.relu(self.bn1(self.conv1(x)))
+        out_0 = F.avg_pool2d(out, out.size()[3])
+    
+        self.size_array.append(out.size())
+        out = self.layer1(out)
+        out_1 = F.avg_pool2d(out, out.size()[3])
 
-    def forward(self, x, pen=False):
-        x = self.features(x)
-        if pen:
-            return x
+        self.size_array.append(out.size())
+        out = self.layer2(out)
+        out_2 = F.avg_pool2d(out, out.size()[3])
+        
+        self.size_array.append(out.size())
+        out = self.layer3(out)
+        out = F.avg_pool2d(out, out.size()[3])
+        self.size_array.append(out.size())
+
+        out_0 = out_0.view(out_0.size(0), -1)
+        out_1 = out_1.view(out_1.size(0), -1)
+        out_2 = out_2.view(out_2.size(0), -1)
+        out = out.view(out.size(0), -1)
+        return [out_0, out_1, out_2, out]
+
+    def logits_h(self, x, detach = True):
+        if detach:
+            return [self.last_0(x[0].detach()), self.last_1(x[1].detach()), self.last_2(x[2].detach()), self.last(x[3])]
         else:
-            x = self.logits(x)
-            return x
+            return [self.last_0(x[0]), self.last_1(x[1]), self.last_2(x[2]), self.last(x[3])]
 
-    def penultimate(self, x):
-        x = self.features(x)
-        return x
+    def forward(self, x, pen=False, h=False):
+        if h:
+            return self.features_h(x)
+        else:
+            x = self.features(x)
+            if pen:
+                return x
+            else:
+                x = self.last(x)
+                return x
 
-def resnet32(out_dim):
+def resnet32_h(out_dim, block_division = None):
+    return ResNet_h(BasicBlock, [5, 5, 5], num_classes=out_dim)
+
+def resnet32(out_dim, block_division = None):
     return ResNet(BasicBlock, [5, 5, 5], num_classes=out_dim)
 
-def resnet18(out_dim):
+def resnet18(out_dim, block_division = None):
     return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=out_dim)
 
 
@@ -149,33 +214,3 @@ class BiasLayer(nn.Module):
     
     def printParam(self, i):
         print(i, self.alpha.item(), self.beta.item())
-
-class BiasModel(nn.Module):
-    def __init__(self, model):
-        super(BiasModel, self).__init__()
-        self.features = model
-        self.alpha = nn.Parameter(torch.ones((1), requires_grad=True, device="cuda"))
-        self.beta =  nn.Parameter(torch.zeros((1), requires_grad=True, device="cuda"))
-
-    def logits(self, x):
-        return torch.cat([x[:,:5] * self.alpha + self.beta, x[:,5:10]], dim=1)
-
-    def forward(self, x, pen=False, div=False):
-        if pen:
-            x = self.features.forward(x, pen=True, div=div)
-            self.size_array = self.features.size_array
-            return x
-        else:
-            x = self.features(x)
-            self.size_array = self.features.size_array
-            x = self.logits(x)
-            return x
-
-    def get_layer_forward(self, l, x):
-        return self.features.get_layer_forward(l, x)
-
-    def get_layer(self, l):
-        return self.features.get_layer(l)
-
-    def penultimate(self, x):
-        return self.features.forward(x, pen=True)

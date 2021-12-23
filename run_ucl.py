@@ -67,12 +67,6 @@ def create_args():
     parser.add_argument('--eps', type=float, default=0.85, help="cluster epsilon")
     parser.add_argument('--MinPts', type=int, default=5, help="min points for cluster in DBSCAN")
 
-    # DBSTREAM parameters
-    parser.add_argument('--lambd', type=float, default=1, help="denstream forgetting factor")
-    parser.add_argument('--mu', type=float, default=1.0, help="microcluster weight threshold for permanent")
-    parser.add_argument('--beta', type=float, default=0.5, help="microcluster weight threshold scaling for outlier")
-    parser.add_argument('--gamma', type=float, default=1.0, help="scaling epsilon from online dbstream to offline dbscan")
-
     # data free knoweldge distilation
     parser.add_argument('--power_iters', type=int, default=10, help="backprop power iterations for producing images")
     parser.add_argument('--refresh_iters', type=int, default=10, help="update gen images")
@@ -90,6 +84,13 @@ def create_args():
     parser.add_argument('--max_task', type=int, default=-1, help="number tasks to perform; if -1, then all tasks; for debug")
     parser.add_argument('--memory', type=int, default=0, help="size of memory for replay")
     parser.add_argument('--temp', type=float, default=2., dest='temp', help="temperature for distillation")
+
+    # Arch params
+    parser.add_argument('--block_size', type=int, default=1)
+    parser.add_argument('--layer_freeze', type=int, default=1)
+    parser.add_argument('--mu', type=float, default=1.0)
+    parser.add_argument('--beta', type=float, default=0.1)
+
 
     return parser
 

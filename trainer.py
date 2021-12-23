@@ -231,13 +231,8 @@ class Trainer:
                         'temp': args.temp,
                         'out_dim': num_classes,
                         'overwrite': args.overwrite == 1,
-                        'online_cluster': args.online_cluster,
-                        'lambd': args.lambd,
-                        'eps': args.eps,
-                        'MinPts': args.MinPts,
                         'mu': args.mu,
                         'beta': args.beta,
-                        'gamma': args.gamma,
                         'DW': args.DW,
                         'KD': args.KD,
                         'batch_size': args.batch_size,
@@ -249,6 +244,8 @@ class Trainer:
                         'playground_flag': args.playground_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
+                        'block_size': args.block_size,
+                        'layer_freeze': args.layer_freeze,
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
@@ -393,6 +390,7 @@ class Trainer:
                 acc_table_ssl.append(self.task_eval(j, task='aux_task'))
             temp_table['acc'].append(np.mean(np.asarray(acc_table)))
             temp_table['aux_task'].append(np.mean(np.asarray(acc_table_ssl)))
+            temp_table['mem'].append(self.learner.count_memory(self.dataset_size))
 
             # save temporary results
             for mkey in self.metric_keys:
