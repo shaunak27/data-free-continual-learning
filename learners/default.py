@@ -530,9 +530,9 @@ class NormalNN(nn.Module):
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
 
-        # Apply network surgery to the backbone
-        # Create the heads for tasks (It can be single task or multi-task)
-        n_feat = model.last.in_features
+        # # Apply network surgery to the backbone
+        # # Create the heads for tasks (It can be single task or multi-task)
+        # n_feat = model.last.in_features
 
         # # The output of the model will be a dict: {task_name1:output1, task_name2:output2 ...}
         # if isinstance(model.last, CosineScaling):

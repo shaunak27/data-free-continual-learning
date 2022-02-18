@@ -9,17 +9,17 @@ N_CLASS=100
 
 ###############################################################
 # save directory
-DATE=Dec_2
+DATE=Jan_14
 OUTDIR=outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # debuging flags
 OVERWRITE=0
 DEBUG=0
-MAXTASK=3
+MAXTASK=-1
 
 # hard coded inputs
 REPEAT=1
-SCHEDULE="100 150 200 250"
+SCHEDULE="100 150 200 300"
 vis_flag=1
 BS=128
 WD=0.0002
@@ -31,108 +31,131 @@ LR=0.1
 
 # environment parameters
 MEMORY=2000
+MODELNAME=resnet32
 
 #
 # algorithm parameters
 #
-BLOCKSIZE_SRP=8
-P_ITERS=10000
+BLOCKSIZE_SRP=16
+BETA_SRP=0
+# SCHEDULE="1"
+OVERWRITE=0
+if [ $GPUID -eq 0 ] 
+then
+    MU_SRB=0.1
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
+        --learner_type kd --learner_name LWF_FRB_DFC_lwfb \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours/a
 
-##################
-###### NOTES #####
-##################
-# first, tune
-# second, try KD feature distillation with only updating linear layers (no blocks, as in notebook)
-# third, try hierarchical KD feature distillation
+    MU_SRB=0.05
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
+        --learner_type kd --learner_name LWF_FRB_DFC_lwfb \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours/e
 
-# process inputs
-if [ $DEBUG -eq 1 ] 
-then   
-    MAXTASK=3
-    SCHEDULE="2"
-    P_ITERS=10
 fi
-mkdir -p $OUTDIR
-
-MODELNAME=resnet32
 
 if [ $GPUID -eq 1 ] 
 then
+    MU_SRB=0.01
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
+        --learner_type kd --learner_name LWF_FRB_DFC_lwfb \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours/b
+    MU=10
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+        --learner_type kd --learner_name LWF_MC_ewc \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc
 
-    for BETA_SRP in 0
-    do
-        for MU_SRB in 0
-        do
-
-            python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-                --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-                --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-                --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
-                --learner_type kd --learner_name LWF_FRB_DFC \
-                --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours-playgroundb-sweep/beta-${BETA_SRP}_mu-${MU_SRB}
-
-        done
-    done
-
-    for BETA_SRP in 0.1 1 2
-    do
-        for MU_SRB in 1 0.1 0.05 0.01 0.005
-        do
-
-            python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-                --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-                --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-                --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
-                --learner_type kd --learner_name LWF_FRB_DFC \
-                --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours-playgroundb-sweep/beta-${BETA_SRP}_mu-${MU_SRB}
-
-        done
-    done
 fi
+
 if [ $GPUID -eq 2 ] 
 then
-    for BETA_SRP in 0.05 0.01 5
-    do
-        for MU_SRB in 1 0.1 0.05 0.01 0.005
-        do
-
-            python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-                --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-                --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-                --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
-                --learner_type kd --learner_name LWF_FRB_DFC \
-                --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours-playgroundb-sweep/beta-${BETA_SRP}_mu-${MU_SRB}
-
-        done
-    done
+    MU_SRB=0.5
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
+        --learner_type kd --learner_name LWF_FRB_DFC_lwfb \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours/c
+    # LWF
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name resnet32  --model_type resnet --KD \
+        --learner_type kd --learner_name LWF_MC \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf
 fi
+
 if [ $GPUID -eq 3 ] 
 then
-    for BETA_SRP in 0.005 0.001 10
-    do
-        for MU_SRB in 1 0.1 0.05 0.01 0.005
-        do
+    MU_SRB=1
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
+        --learner_type kd --learner_name LWF_FRB_DFC_lwfb \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours/d
+    MU=10
+    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+        --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+        --learner_type kd --learner_name LWF_MC_ewc_b \
+        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwfm_ewc
 
-            python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-                --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-                --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-                --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
-                --learner_type kd --learner_name LWF_FRB_DFC \
-                --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours-playgroundb-sweep/beta-${BETA_SRP}_mu-${MU_SRB}
-
-        done
-    done
 fi
+
+# if [ $GPUID -eq 0 ] 
+# then
+#     MU=5
+#     python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+#         --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+#         --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+#         --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+#         --learner_type kd --learner_name LWF_MC_ewc \
+#         --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc/a
+# fi
+
+# if [ $GPUID -eq 1 ] 
+# then
+#     MU=10
+#     python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+#         --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+#         --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+#         --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+#         --learner_type kd --learner_name LWF_MC_ewc \
+#         --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc/b
+# fi
+
+# if [ $GPUID -eq 2 ] 
+# then
+#     MU=5
+#     python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+#         --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+#         --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+#         --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+#         --learner_type kd --learner_name LWF_MC_ewc \
+#         --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc/c
+# fi
+
 # if [ $GPUID -eq 3 ] 
 # then
-#     BETA_SRP=0.05
-#     MU_SRB=0.1
-#     # ours - hierarchical
+#     MU=10
 #     python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-#                 --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-#                 --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-#                 --memory 0  --model_name $MODELNAME --model_type resnet_srb --mu $MU_SRB --beta $BETA_SRP --block_size $BLOCKSIZE_SRP --KD \
-#                 --learner_type kd --learner_name LWF_FRB_DFB \
-#                 --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ours
-    
+#         --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+#         --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+#         --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
+#         --learner_type kd --learner_name LWF_MC_ewc \
+#         --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc/d
 # fi

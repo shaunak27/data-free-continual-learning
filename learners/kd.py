@@ -16,6 +16,7 @@ from torch.optim import Optimizer
 import contextlib
 import os
 from .default import NormalNN, weight_reset, accumulate_acc, loss_fn_kd, Teacher
+from .module_helper import ModuleHelper
 import copy
 import torchvision
 import matplotlib
@@ -41,7 +42,7 @@ class LWF(NormalNN):
         
         # try to load model
         need_train = True
-        if not self.overwrite:
+        if not self.overwrite or self.task_count == 0:
             try:
                 self.load_model(model_save_dir)
                 need_train = False
@@ -74,6 +75,7 @@ class LWF(NormalNN):
                     self.log('LR:', param_group['lr'])
                 batch_timer.tic()
                 for i, (x, y, task)  in enumerate(train_loader):
+                    self.step = i
 
                     # verify in train mode
                     self.model.train()
@@ -120,6 +122,7 @@ class LWF(NormalNN):
         self.model.eval()
 
         self.past_tasks.append(np.arange(self.last_valid_out_dim,self.valid_out_dim))
+        self.last_last_valid_out_dim = self.last_valid_out_dim
         self.last_valid_out_dim = self.valid_out_dim
         self.first_task = False
 
@@ -170,11 +173,17 @@ class LWF(NormalNN):
             self.task_count += 1
             if self.memory_size > 0:
                 train_dataset.update_coreset_ic(self.memory_size, np.arange(self.last_valid_out_dim), teacher)
+        
+        # prepare dataloaders for block replay methods
+        self.accumulate_block_memory(train_loader)
 
         try:
             return batch_time.avg
         except:
             return None
+
+    def accumulate_block_memory(self, train_loader):
+        pass
 
     def update_model(self, inputs, targets, target_KD = None):
         
@@ -252,551 +261,721 @@ class LWF_MC(LWF):
         self.optimizer.step()
         return total_loss.detach(), total_loss.detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
 
-class LWF_NOISE_H(LWF):
+class LWF_MC_ewc(LWF):
 
     def __init__(self, learner_config):
-        super(LWF_NOISE_H, self).__init__(learner_config)
+        super(LWF_MC_ewc, self).__init__(learner_config)
+        self.regularization_terms = {}
         
 
     def update_model(self, inputs, targets, target_KD = None):
         
-        feat_out = self.model.forward(inputs, h=True)
-        logits_h = self.model.logits_h(feat_out)
-        if not self.first_task:
-            with torch.no_grad():
-                targets_KD_h = self.previous_teacher.solver.logits_h(self.previous_teacher.solver.forward(inputs, h=True))
+        # get output
+        logits = self.forward(inputs)
 
         # class loss
-        loss_class = torch.zeros((1,), requires_grad=True).cuda()
-        for i in range(len(logits_h)):
-            
-            logits = logits_h[i][:,:self.valid_out_dim]
-            if not self.first_task:
-                target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-            else:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-            loss_class += loss
-                
-        # kd feat distil
+        if self.KD and target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+        else:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+
         loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        if not self.first_task:
-            logits_h_kd = self.previous_teacher.solver.logits_h(feat_out, detach = False)
-            nl = len(logits_h_kd)
-            for i in range(nl):
-                if i > 3:
-                    logits_kd = logits_h_kd[i][:, :self.last_valid_out_dim]
-                    target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                    loss_kd += self.ce_loss(torch.sigmoid(logits_kd), torch.sigmoid(target_KD)) / len(logits_kd)
+        if self.KD and target_KD is not None:
+            # Calculate the reg_loss only when the regularization_terms exists
+            reg_loss = 0
+            for i,reg_term in self.regularization_terms.items():
+                task_reg_loss = 0
+                importance = reg_term['importance']
+                task_param = reg_term['task_param']
+                for n, p in self.params.items():
+                    task_reg_loss += (importance[n] * (p - task_param[n]) ** 2).sum()
+                reg_loss += task_reg_loss
+            loss_kd += self.mu * reg_loss / self.task_count
 
-        total_loss = loss_class + loss_kd
-
+        total_loss = total_loss + loss_kd
         self.optimizer.zero_grad()
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
         self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
+        return total_loss.detach(), total_loss.detach() - loss_kd.detach(), loss_kd.detach(), logits
 
+    def accumulate_block_memory(self, train_loader):
+        dataloader = train_loader
+        # Update the diag fisher information
+        # There are several ways to estimate the F matrix.
+        # We keep the implementation as simple as possible while maintaining a similar performance to the literature.
+        self.params = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
+        self.log('Computing EWC')
 
-class LWF_NOISE_HN(LWF):
+        # Initialize the importance matrix
+        importance = {}
+        for n, p in self.params.items():
+            importance[n] = p.clone().detach().fill_(0)  # zero initialized
 
-    def __init__(self, learner_config):
-        super(LWF_NOISE_HN, self).__init__(learner_config)
-        
-    def power_iter(self, x, model, head, n):
+        mode = self.training
+        self.eval()
 
-        # init optimization
-        inputs = torch.randn(x.size(), requires_grad = True, device = "cuda")
-        y = torch.randint(low=0, high=self.last_valid_out_dim, size=(len(inputs),)).cuda()
-        model = model.cuda()
-        head = head.cuda()
-        optimizer_di = torch.optim.Adam([inputs], lr=0.1)
+        # Accumulate the square of gradients
+        for i, (input, target, task) in enumerate(dataloader):
+            if self.gpu:
+                input = input[0].cuda()
+                target = target.cuda()
 
-        # Create hooks for feature statistics catching
-        loss_r_feature_layers = []
-        for module in model.modules():
-            if isinstance(module, nn.BatchNorm2d) or isinstance(module, nn.BatchNorm1d):
-                loss_r_feature_layers.append(DeepInversionFeatureHook(module))
-        loss_r_feature_layers = loss_r_feature_layers
+            pred = self.model.forward(input)[:,:self.valid_out_dim]
+            ind = pred.max(1)[1].flatten()  # Choose the one with max
 
-        for i in range(n):
-            optimizer_di.zero_grad()
-            model.zero_grad()
-            outputs = model(inputs)
-            outputs = F.avg_pool2d(outputs, outputs.size()[3])
-            outputs = head(outputs.view(len(outputs),-1))[:,:self.last_valid_out_dim]
-
-            target_mod = get_one_hot(y, self.last_valid_out_dim)
-            loss = self.ce_loss(torch.sigmoid(outputs), target_mod) / len(outputs)
-
-            # R_feature loss
-            for mod in loss_r_feature_layers: 
-                loss_distr = mod.r_feature * 100 / len(loss_r_feature_layers)
-                loss = loss + loss_distr
-
+            # loss = self.criterion(pred, ind, task, regularization=False)
+            target_mod = get_one_hot(target, self.valid_out_dim)
+            loss = self.ce_loss(torch.sigmoid(pred), target_mod) / len(pred)
+            self.model.zero_grad()
             loss.backward()
-            optimizer_di.step()
+            for n, p in importance.items():
+                if self.params[n].grad is not None:  # Some heads can have no grad if no loss applied on them.
+                    p += ((self.params[n].grad ** 2) * len(input) / len(dataloader))
 
-        return x * 0 + inputs.detach()
+        self.train(mode=mode)
+        task_param = {}
+        for n, p in self.params.items():
+            task_param[n] = p.clone().detach()
+        self.regularization_terms[self.task_count] = {'importance':importance, 'task_param':task_param}
+
+
+class MC_ewc(LWF):
+
+    def __init__(self, learner_config):
+        super(MC_ewc, self).__init__(learner_config)
+        self.regularization_terms = {}
+        
 
     def update_model(self, inputs, targets, target_KD = None):
         
-        feat_out = self.model.forward(inputs, h=True)
-        logits_h = self.model.logits_h(feat_out)
-        if not self.first_task:
-            with torch.no_grad():
-                targets_KD_h = self.previous_teacher.solver.logits_h(self.previous_teacher.solver.forward(inputs, h=True))
+        # get output
+        logits = self.forward(inputs)
 
         # class loss
-        loss_class = torch.zeros((1,), requires_grad=True).cuda()
-        for i in range(len(logits_h)):
-            
-            logits = logits_h[i][:,:self.valid_out_dim]
-            if not self.first_task:
-
-                # if i == len(logits_h) - 1:
-                #     feat = feat_out[-1]
-                #     logits = torch.cat([self.previous_teacher.solver.last(feat.view(feat.size(0),-1))[:, :self.last_valid_out_dim], logits[:, self.last_valid_out_dim:self.valid_out_dim]], dim=1)
-
-                target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-            else:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-            loss_class += loss
-                
-        # kd with noise
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        if not self.first_task:
-            logits_h_kd = self.previous_teacher.solver.logits_h(feat_out, detach = False)
-            nl = len(logits_h_kd)
-            for i in range(nl):
-                logits_kd = logits_h_kd[i][:, :self.last_valid_out_dim]
-                target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                loss_kd += self.ce_loss(torch.sigmoid(logits_kd), torch.sigmoid(target_KD)) / len(logits_kd)
-
-                # include some noise here too :)
-                if i > 0:
-                    if i == 1:
-                        mod1 = self.model.layer1
-                        mod2 = self.previous_teacher.solver.layer1
-                        head = self.previous_teacher.solver.last_1
-                    if i == 2:
-                        mod1 = self.model.layer2
-                        mod2 = self.previous_teacher.solver.layer2
-                        head = self.previous_teacher.solver.last_2
-                    if i == 3:
-                        mod1 = self.model.layer3
-                        mod2 = self.previous_teacher.solver.layer3
-                        head = self.previous_teacher.solver.last
-                    mod1.eval()
-                    noise_size = self.model.size_array[i-1]
-                    x_ = torch.randn(noise_size, requires_grad = True).cuda()
-                    x_ = self.power_iter(x_, copy.deepcopy(mod2), copy.deepcopy(head), 10)
-                    x = mod1.forward(x_)
-                    x = F.avg_pool2d(x, x.size()[3])
-                    y = head.forward(x.view(len(x),-1))
-                    x_hat = mod2.forward(x_)
-                    x_hat = F.avg_pool2d(x_hat, x_hat.size()[3])
-                    y_hat = head.forward(x_hat.view(len(x_hat),-1))
-                    loss_kd += self.mu * self.ce_loss(torch.sigmoid(y), torch.sigmoid(y_hat).detach()) / len(logits_kd)
-                    mod1.train()
-
-        total_loss = loss_class + loss_kd
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
-
-
-
-
-
-
-class LWF_FRB_DFC(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DFC, self).__init__(learner_config)
-        self.kd_criterion = nn.MSELoss(reduction='mean')
-        self.mmd_loss = MMD_loss()
-        self.beta = learner_config['beta']
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        # train other heads
-        loss_class = 0
-        feat_out = self.model.forward_h(inputs)
-        logits_h = self.model.logits_h(feat_out, detach=True)
-        if not self.first_task:
-            with torch.no_grad():
-                targets_KD_h = self.previous_teacher.solver.logits_h(self.previous_teacher.solver.forward_h(inputs))
-
-        # class loss
-        for i in range(len(logits_h)):
-            
-            logits_ = logits_h[i][:,:self.valid_out_dim]
-            if not self.first_task:
-                target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                loss = self.ce_loss(torch.sigmoid(logits_), target_mod) / len(logits_)
-            else:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                loss = self.ce_loss(torch.sigmoid(logits_), target_mod) / len(logits_)
-            loss_class = loss + loss_class
-
-        if not self.first_task:
-
-            # helper = copy.deepcopy(self.model)
-            # feat = self.model.pen_forward_helped(x=inputs, helper=helper)
-            # logits_kd = helper.logits(feat.view(feat.size(0),-1))[:, :self.last_valid_out_dim]
-            # target_mod = torch.sigmoid(target_KD)
-            # loss_class += self.ce_loss(torch.sigmoid(logits_kd), target_mod) / len(logits_kd)
-
-            intermediate_feat_out, feat, bd = self.model.forward(x=inputs, pen=True, div = True)
-            logits = self.model.logits(feat)[:,:self.valid_out_dim]
+        if self.KD and target_KD is not None:
             target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
-            # loss_class += self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod) / len(logits)
-           
+            total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod) / len(logits)
         else:
-            intermediate_feat_out, feat, bd = self.model.forward(x=inputs, pen=True, div = True)
-            logits = self.model.logits(feat)[:,:self.valid_out_dim]
             target_mod = get_one_hot(targets, self.valid_out_dim)
-            loss_class += self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
 
-        # kd feat distil
         loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        if not self.first_task:
-            logits_h_kd = self.previous_teacher.solver.logits_h(feat_out, detach = False)
-            nl = len(logits_h_kd)
-            for i in range(nl):
-                if i == 0:#or i == nl-1:
-                    logits_kd = logits_h_kd[i][:, :self.last_valid_out_dim]
-                    target_KD = targets_KD_h[i][:,:self.last_valid_out_dim]
-                    loss_kd += self.ce_loss(torch.sigmoid(logits_kd), torch.sigmoid(target_KD)) / len(logits_kd)
+        if self.KD and target_KD is not None:
+            # Calculate the reg_loss only when the regularization_terms exists
+            reg_loss = 0
+            for i,reg_term in self.regularization_terms.items():
+                task_reg_loss = 0
+                importance = reg_term['importance']
+                task_param = reg_term['task_param']
+                for n, p in self.params.items():
+                    task_reg_loss += (importance[n] * (p - task_param[n]) ** 2).sum()
+                reg_loss += task_reg_loss
+            loss_kd += self.mu * reg_loss / self.task_count
 
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        nl = len(intermediate_feat_out)
-        next_layer_in = {}
-        for l in range(nl):
-            h = len(intermediate_feat_out[l][0])
-            bd_i = 0
-            layer_out = [[],[]]
-            for b in range(bd):
-
-                # get output to layer
-                block_out = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
-                
-                # first loss is distribution constrain
-                loss_dist = self.dist_loss(block_out) + loss_dist
-
-                # second loss is sampling, after first task
-                if not self.first_task:
-                    block_in = torch.randn(self.model.size_array[l]).cuda()
-                    module = self.model.get_layer(l+1)[b]
-                    module_past = self.previous_teacher.solver.get_layer(l+1)[b]
-
-                    # freeze bn
-                    # for m in module: m.bn_freeze = True
-                    # for m in module_past: m.bn_freeze = True
-                    for m in module:
-                        m.eval()
-                    for m in module_past:
-                        m.eval()
-
-                    current = module.forward(block_in)
-                    with torch.no_grad():
-                        past = module_past.forward(block_in)
-                    layer_out[0].append(current)
-                    layer_out[1].append(past)
-                    
-                    # # unfreeze bn
-                    # for m in module: m.bn_freeze = False
-                    for m in module:
-                        m.train()
-
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-            if not self.first_task:
-                weight_m = self.previous_teacher.solver.get_linear_layer(l+1)
-                current = torch.cat(layer_out[0], dim=1)
-                current = F.avg_pool2d(current, current.size()[3])
-                current = torch.sigmoid(weight_m.forward(current.view(current.size(0), -1)))
-                with torch.no_grad():
-                    past = torch.cat(layer_out[1], dim=1)
-                    past = F.avg_pool2d(past, past.size()[3])
-                    past = torch.sigmoid(weight_m.forward(past.view(past.size(0), -1)))
-                loss_kd = self.ce_loss(current, past) / len(current) + loss_kd
-
-        # # total loss
-        # loss_dist = loss_dist / (bd * nl)
-        # loss_kd =   loss_kd   / (bd * nl)
-
-        # scaling
-        loss_dist = loss_dist * self.beta
-        loss_kd =   loss_kd * self.mu 
-        
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_dist + loss_kd
-
-        # if self.epoch == 150: print(apple)
-
+        total_loss = total_loss + loss_kd
         self.optimizer.zero_grad()
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
         self.optimizer.step()
+        return total_loss.detach(), total_loss.detach() - loss_kd.detach(), loss_kd.detach(), logits
 
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
+    def accumulate_block_memory(self, train_loader):
+        dataloader = train_loader
+        # Update the diag fisher information
+        # There are several ways to estimate the F matrix.
+        # We keep the implementation as simple as possible while maintaining a similar performance to the literature.
+        self.params = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
+        self.log('Computing EWC')
+
+        # Initialize the importance matrix
+        importance = {}
+        for n, p in self.params.items():
+            importance[n] = p.clone().detach().fill_(0)  # zero initialized
+
+        mode = self.training
+        self.eval()
+
+        # Accumulate the square of gradients
+        for i, (input, target, task) in enumerate(dataloader):
+            if self.gpu:
+                input = input[0].cuda()
+                target = target.cuda()
+
+            pred = self.model.forward(input)[:,:self.valid_out_dim]
+            ind = pred.max(1)[1].flatten()  # Choose the one with max
+
+            # loss = self.criterion(pred, ind, task, regularization=False)
+            target_mod = get_one_hot(target, self.valid_out_dim)
+            loss = self.ce_loss(torch.sigmoid(pred), target_mod) / len(pred)
+            self.model.zero_grad()
+            loss.backward()
+            for n, p in importance.items():
+                if self.params[n].grad is not None:  # Some heads can have no grad if no loss applied on them.
+                    p += ((self.params[n].grad ** 2) * len(input) / len(dataloader))
+
+        self.train(mode=mode)
+        task_param = {}
+        for n, p in self.params.items():
+            task_param[n] = p.clone().detach()
+        self.regularization_terms[self.task_count] = {'importance':importance, 'task_param':task_param}
 
 
-    def n_task_class_loss(self, inputs, logits, targets, target_KD):
-        target_mod = get_one_hot(targets, self.valid_out_dim)
-        target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-        loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-        return loss_class
-
-    def dist_loss(self,block_out):
-        sample_ind = np.random.choice(block_out.size(1), 100)
-        block_out = block_out[:,sample_ind]
-        block_target = torch.randn(block_out.size()).cuda()
-        loss_dist = self.mmd_loss(block_out,block_target)
-        return loss_dist
-
-
-
-
-
-
-
-
-
-
-class LWF_FRB_DFB(LWF):
+class LWF_MC_ewc_b(LWF):
 
     def __init__(self, learner_config):
-        super(LWF_FRB_DFB, self).__init__(learner_config)
+        super(LWF_MC_ewc_b, self).__init__(learner_config)
+        self.regularization_terms = {}
+        
+
+    def update_model(self, inputs, targets, target_KD = None):
+        
+        # get output
+        logits = self.forward(inputs)
+
+        # class loss
+        if self.KD and target_KD is not None:
+            target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod) / len(logits)
+            pen = self.model.forward(inputs, pen=True)
+            logits_kd = self.previous_teacher.solver.last(pen)[:,:self.last_valid_out_dim]
+            total_loss += self.ce_loss(torch.sigmoid(logits_kd), torch.sigmoid(target_KD)) / len(logits)
+        else:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+
+        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
+        if self.KD and target_KD is not None:
+            # Calculate the reg_loss only when the regularization_terms exists
+            reg_loss = 0
+            for i,reg_term in self.regularization_terms.items():
+                task_reg_loss = 0
+                importance = reg_term['importance']
+                task_param = reg_term['task_param']
+                for n, p in self.params.items():
+                    task_reg_loss += (importance[n] * (p - task_param[n]) ** 2).sum()
+                reg_loss += task_reg_loss
+            loss_kd += self.mu * reg_loss / self.task_count
+
+        total_loss = total_loss + loss_kd
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10)
+        self.optimizer.step()
+        return total_loss.detach(), total_loss.detach() - loss_kd.detach(), loss_kd.detach(), logits
+
+    def accumulate_block_memory(self, train_loader):
+        dataloader = train_loader
+        # Update the diag fisher information
+        # There are several ways to estimate the F matrix.
+        # We keep the implementation as simple as possible while maintaining a similar performance to the literature.
+        self.params = {n: p for n, p in self.model.named_parameters() if p.requires_grad}
+        self.log('Computing EWC')
+
+        # Initialize the importance matrix
+        importance = {}
+        for n, p in self.params.items():
+            importance[n] = p.clone().detach().fill_(0)  # zero initialized
+
+        mode = self.training
+        self.eval()
+
+        # Accumulate the square of gradients
+        for i, (input, target, task) in enumerate(dataloader):
+            if self.gpu:
+                input = input[0].cuda()
+                target = target.cuda()
+
+            pred = self.model.forward(input)[:,:self.valid_out_dim]
+            ind = pred.max(1)[1].flatten()  # Choose the one with max
+
+            # loss = self.criterion(pred, ind, task, regularization=False)
+            target_mod = get_one_hot(target, self.valid_out_dim)
+            loss = self.ce_loss(torch.sigmoid(pred), target_mod) / len(pred)
+            self.model.zero_grad()
+            loss.backward()
+            for n, p in importance.items():
+                if self.params[n].grad is not None:  # Some heads can have no grad if no loss applied on them.
+                    p += ((self.params[n].grad ** 2) * len(input) / len(dataloader))
+
+        self.train(mode=mode)
+        task_param = {}
+        for n, p in self.params.items():
+            task_param[n] = p.clone().detach()
+        self.regularization_terms[self.task_count] = {'importance':importance, 'task_param':task_param}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class LWF_FRB_DFC_lwf(LWF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DFC_lwf, self).__init__(learner_config)
         self.kd_criterion = nn.MSELoss(reduction='mean')
         self.mmd_loss = MMD_loss()
         self.beta = learner_config['beta']
+        self.block_helper_dict = {}
+        self.block_reg_term = {}
 
     def update_model(self, inputs, targets, target_KD = None):
-
-        # dirty freezing
-        if not self.first_task:
-            
-            intermediate_feat_out, feat, bd = self.model.forward(x=inputs, pen=True, div = True)
-            # logits = torch.cat([self.previous_teacher.solver.logits(feat.view(feat.size(0),-1))[:, :self.last_valid_out_dim], self.model.logits(feat.view(feat.size(0),-1))[:, self.last_valid_out_dim:self.valid_out_dim]], dim=1)
-            logits = self.model.logits(feat)[:,:self.valid_out_dim]
-            target_mod = get_one_hot(targets, self.valid_out_dim)
-            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-            loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
         
+        epoch_change = 70
+        if not self.first_task:
+            if self.epoch == 0 and self.step == 0:
+                import copy
+                self.model.layer1_pre = copy.deepcopy(self.model.layer1_pre)
+                self.model.layer2_pre = copy.deepcopy(self.model.layer2_pre)
+                self.model.layer3_pre = copy.deepcopy(self.model.layer3_pre)
+                self.model.conv1 = copy.deepcopy(self.model.conv1)
+            elif self.epoch == epoch_change and self.step == 0:
+                params = list(self.model.layer1_pre.parameters()) + list(self.model.layer2_pre.parameters()) + list(self.model.layer3_pre.parameters())
+                optimizer_arg = {'params':params,
+                                'lr':self.config['lr'],
+                                'weight_decay':self.config['weight_decay'],
+                                'momentum':self.config['momentum']}
+                self.optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
+                # new teacher
+                import copy
+                teacher = Teacher(solver=self.model)
+                self.current_teacher = copy.deepcopy(teacher)
+
+        # get logits and intermediate features
+        intermediate_feat_out, feat, bd = self.model.forward(x=inputs, pen=True, div = True)
+        logits = self.model.logits(feat)[:,:self.valid_out_dim]
+
+        # class loss
+        if self.KD and target_KD is not None:
+            if self.epoch < epoch_change:
+                target_mod = get_one_hot(targets - self.last_valid_out_dim, self.valid_out_dim - self.last_valid_out_dim)
+                loss_class = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod) / len(logits)
+                # target_mod = get_one_hot(targets, self.valid_out_dim)
+                # target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+                # loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+            else:
+                allowed_predictions = list(range(self.last_valid_out_dim, self.valid_out_dim))
+                y_hat, _ = self.current_teacher.generate_scores(inputs, allowed_predictions=allowed_predictions)
+                target_mod = torch.cat([torch.sigmoid(target_KD), torch.sigmoid(y_hat)], dim=1)
+                loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
         else:
-            intermediate_feat_out, feat, bd = self.model.forward(x=inputs, pen=True, div = True)
-            logits = self.model.logits(feat)[:,:self.valid_out_dim]
             target_mod = get_one_hot(targets, self.valid_out_dim)
             loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-
+            
         # Constrain to distribution
         loss_dist = torch.zeros((1,), requires_grad=True).cuda()
         loss_kd = torch.zeros((1,), requires_grad=True).cuda()
         nl = len(intermediate_feat_out)
-        next_layer_in = {}
-        for l in range(nl):
-            h = len(intermediate_feat_out[l][0])
-            bd_i = 0
-            for b in range(bd):
+        if self.epoch < epoch_change:
+            for l in range(nl):
 
-                # get output to layer
-                block_out = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
-                
-                # first loss is distribution constrain
-                loss_dist = self.dist_loss(block_out) + loss_dist
+                h = len(intermediate_feat_out[l][0])
+                bd_i = 0
+                for b in range(bd):
 
-                # second loss is sampling, after first task
-                if not self.first_task:
-                    block_in = torch.randn(self.model.size_array[l]).cuda()
-                    module = self.model.get_layer(l+1)[b]
-                    module_past = self.previous_teacher.solver.get_layer(l+1)[b]
-
-                    # freeze bn
-                    # for m in module: m.bn_freeze = True
-                    # for m in module_past: m.bn_freeze = True
-                    for m in module:
-                        m.eval()
-                    for m in module_past:
-                        m.eval()
-
+                    # get output to layer
+                    block_in = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
                     
-                    current = module.forward(block_in)
-                    with torch.no_grad():
-                        past = module_past.forward(block_in)
-                    loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1))/len(block_in) + loss_kd
+                    ##################
+                    # CONTRIBUTION 1 #
+                    ##################
+                    # first loss is distribution constrain
+                    # loss_dist = self.dist_loss(block_in) + loss_dist
+                    loss_dist = 0 + loss_dist
 
-                    # # unfreeze bn
-                    # for m in module: m.bn_freeze = False
-                    for m in module:
-                        m.train()
-
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
-
-                # increment block
-                bd_i += int(h/bd)
-
-        # # total loss
-        # loss_dist = loss_dist / (bd * nl)
-        # loss_kd =   loss_kd   / (bd * nl)
-
-        # scaling
-        loss_dist = loss_dist * self.beta
-        loss_kd =   loss_kd * self.mu 
-        
-        if self.first_task:
-            total_loss = loss_class + loss_dist
-        else:
-            total_loss = loss_class + loss_dist + loss_kd
-
-        # if self.epoch == 150: print(apple)
-
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-
-        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
-
-
-    def n_task_class_loss(self, inputs, logits, targets, target_KD):
-        target_mod = get_one_hot(targets, self.valid_out_dim)
-        target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-        loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-        return loss_class
-
-    def dist_loss(self,block_out):
-        sample_ind = np.random.choice(block_out.size(1), 100)
-        block_out = block_out[:,sample_ind]
-        block_target = torch.randn(block_out.size()).cuda()
-        loss_dist = self.mmd_loss(block_out,block_target)
-        return loss_dist
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class LWF_FRB_DF(LWF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF, self).__init__(learner_config)
-        self.kd_criterion = nn.MSELoss(reduction='mean')
-        self.mmd_loss = MMD_loss()
-        self.l_freeze = learner_config['layer_freeze']
-        self.beta = learner_config['beta']
-
-    def update_model(self, inputs, targets, target_KD = None):
-
-        if self.dw:
-            dw_cls = self.dw_k[targets.long()]
-        else:
-            dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-
-        # dirty freezing
-        if not self.first_task:
-            
-            # current_pen, bd = self.model.forward(x=inputs, pen=True, div = True, l_freeze=self.l_freeze)
-            # feat = current_pen[-1]
-            # logits = self.model.logits(feat.view(feat.size(0),-1))[:, :self.valid_out_dim]
-
-            # current_pen, bd = self.model.forward(x=inputs, pen=True, div = True, l_freeze=-1)
-            # feat = current_pen[-1]
-            # logits = torch.cat([self.previous_teacher.solver.logits(feat.view(feat.size(0),-1))[:, :self.last_valid_out_dim], self.model.logits(feat.view(feat.size(0),-1))[:, self.last_valid_out_dim:self.valid_out_dim]], dim=1)
-
-            current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-            logits = self.model.logits(current_pen[-1])
-            target_mod = get_one_hot(targets, self.valid_out_dim)
-            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-            loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-        
-        else:
-            logits = self.forward(inputs)
-            target_mod = get_one_hot(targets, self.valid_out_dim)
-            loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
-            current_pen, bd = self.model.forward(x=inputs, pen=True, div = True)
-
-        # Constrain to distribution
-        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
-        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
-        nl = len(current_pen)
-        next_layer_in = {}
-        for l in range(0,nl):
-            h = len(current_pen[l][0])
-            bd_i = 0
-            for b in range(bd):
-
-                # get output to layer
-                block_out = current_pen[l][:,bd_i:bd_i+int(h/bd)]
-
-                # get input to layer
-                if l > 1:
-                    block_in_dim = next_layer_in[b]
-                
-                # first loss is distribution constrain
-                if l >= self.l_freeze and l < nl-1:
-                    loss_dist = self.dist_loss(block_out) + loss_dist
-
-                if l >= self.l_freeze + 1:
-                    # second loss is sampling, after first task
+                    # second loss is sampling kd, after first task
                     if not self.first_task:
-                        block_in = torch.randn(self.model.size_array[l-1]).cuda()
-                        module = self.model.get_layer(l)[b]
-                        current = module.forward(block_in)
-                        past = self.previous_teacher.solver.get_layer(l)[b].forward(block_in)
-                        loss_kd = self.kd_criterion(current.view(current.size(0), -1), past.view(past.size(0), -1))/len(block_in) + loss_kd
 
-                # save output as input to next layer
-                next_layer_in[b] = block_out.size()
+                        ##################
+                        # CONTRIBUTION 2 #
+                        ##################
+                        # sample from block for KD
+                        # block_in = torch.randn(self.model.size_array[l]).cuda()
+                        block_in = self.block_helper_dict[l][b].generate_samples()
+
+                        module = self.model.get_layer(l+1)[b]
+                        module_past = self.previous_teacher.solver.get_layer(l+1)[b]
+
+                        # freeze bn
+                        for m in module:
+                            m.eval()
+                        for m in module_past:
+                            m.eval()
+
+                        current = module.forward(block_in)
+                        with torch.no_grad():
+                            past = module_past.forward(block_in)
+                        if not self.first_task:
+                            loss_kd = self.kd_criterion(current, past) + loss_kd
+
+                            # sample_ind = np.random.choice(block_in.size(1), 100)
+                            # loss_kd = self.mmd_loss(current.reshape(len(current),-1)[:,sample_ind], past.reshape(len(past),-1)[:,sample_ind]) + loss_kd
+
+                            # reg_loss = 0
+                            # for n, p in self.block_reg_term[l][b]['params'].items():
+                            #     importance = self.block_reg_term[l][b]['importance'][n]
+                            #     reg_loss += (importance * (p - self.block_reg_term[l][b]['values'][n]) ** 2).sum()
+                            # reg_loss += reg_loss
+                            # loss_kd = reg_loss + loss_kd
+                        
+                        # # unfreeze bn
+                        for m in module:
+                            m.train()
+
+                    # increment block
+                    bd_i += int(h/bd)
+
+        # total loss
+        # scaling
+        loss_dist = loss_dist * self.beta / (nl*bd)
+        loss_kd =   loss_kd * self.mu / (nl*bd)
+        
+        if self.first_task:
+            total_loss = loss_class + loss_dist
+        else:
+            total_loss = loss_class + loss_dist + loss_kd
+
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
+
+    def accumulate_block_memory(self, train_loader):
+        
+        # verify in eval mode
+        self.model.eval()
+        for i, (x, y, task)  in enumerate(train_loader):
+
+            # send data to gpu
+            if self.gpu:
+                x = [x[k].cuda() for k in range(len(x))]
+                y = y.cuda()
+
+            # get logits and intermediate features
+            intermediate_feat_out, feat, bd = self.model.forward(x=x[0], pen=True, div = True)
+            logits = self.model.logits(feat)[:,:self.valid_out_dim]
+            logits.pow_(2)
+            loss = logits.mean()
+            self.model.zero_grad()
+            loss.backward()
+
+            # Constrain to distribution
+            nl = len(intermediate_feat_out)
+            for l in range(nl):
+                
+                # get helper block layer
+                if not l in self.block_helper_dict:
+                    self.block_helper_dict[l] = {}
+                if not l in self.block_reg_term:
+                    self.block_reg_term[l] = {}
+
+                h = len(intermediate_feat_out[l][0])
+                bd_i = 0
+                for b in range(bd):
+
+                    # get helper block
+                    if not b in self.block_helper_dict[l]:
+                        self.block_helper_dict[l][b] = ModuleHelper(self.model.size_array[l], bd)
+
+                    # get output to layer
+                    block_in = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
+
+                    # update block helper
+                    self.block_helper_dict[l][b].update_memory(block_in)
+
+                    # get module
+                    module = self.model.get_layer(l+1)[b]
+
+                    # freeze bn
+                    for m in module:
+                        m.eval()
+
+                    # get helper block
+                    if not b in self.block_reg_term[l]:
+                        self.block_reg_term[l][b] = {}
+                        self.block_reg_term[l][b]['params'] = {n: p for n, p in module.named_parameters() if p.requires_grad}
+                        self.block_reg_term[l][b]['values'] = {}
+                        self.block_reg_term[l][b]['importance'] = {}
+                        for n, p in self.block_reg_term[l][b]['params'].items():
+                            self.block_reg_term[l][b]['values'][n] = p.clone().detach()
+                            self.block_reg_term[l][b]['importance'][n] = 0
+
+                    for n, p in self.block_reg_term[l][b]['params'].items():
+                        if p.grad is not None:
+                            self.block_reg_term[l][b]['importance'][n] = (p.grad.abs() / len(train_loader)) + self.block_reg_term[l][b]['importance'][n]
+
+                    # increment block
+                    bd_i += int(h/bd)
+
+        # update block helper loader
+        for l in range(nl):
+            for b in range(bd):
+                self.block_helper_dict[l][b].update_loader(self.task_count)
+
+    def n_task_class_loss(self, inputs, logits, targets, target_KD):
+        target_mod = get_one_hot(targets, self.valid_out_dim)
+        target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+        loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+        return loss_class
+
+    def dist_loss(self,block_in):
+        sample_ind = np.random.choice(block_in.size(1), 100)
+        block_in = block_in[:,sample_ind]
+        block_target = torch.randn(block_in.size()).cuda()
+        loss_dist = self.mmd_loss(block_in,block_target)
+        return loss_dist
+
+    def visualization(self, dataloader, topdir, name, task, embedding):
+
+        # past vis
+        super(LWF_FRB_DFC_lwf, self).visualization(dataloader, topdir, name, task, embedding)
+
+        if self.task_count == 0: return
+
+        # gather data
+        orig_mode = self.training
+        self.eval()
+        metrics = {'CKA':{},'MSE':{},'MMD':{}} # layer, then average (over blocks) for CKA, MSE, and MMD
+        metrics_blockmem = {'CKA':{},'MSE':{},'MMD':{}} # layer, then average (over blocks) for CKA, MSE, and MMD
+        dist_match = {'CKA':{'NormalG':{},'LearnedG':{}},'MSE':{'NormalG':{},'LearnedG':{}},'MMD':{'NormalG':{},'LearnedG':{}}} # layer, then average (over blocks) for {MSE, MMD} with {normal, learned gaussian}
+        for i, (input, target, _) in enumerate(dataloader):
+            if self.gpu:
+                with torch.no_grad():
+                    x = input.cuda()
+                
+            # get logits and intermediate features
+            intermediate_feat_out, feat, bd = self.previous_teacher.solver.forward(x=x, pen=True, div = True)
+
+            # Constrain to distribution
+            with torch.no_grad():
+                nl = len(intermediate_feat_out)
+                first_time = [True for l in range(nl)]
+                for l in range(nl):
+
+                    if first_time[l]:
+                        metrics['CKA'][l] = 0
+                        metrics_blockmem['CKA'][l] = 0
+                        dist_match['CKA']['NormalG'][l] = 0
+                        dist_match['CKA']['LearnedG'][l] = 0
+                        metrics['MSE'][l] = 0
+                        metrics_blockmem['MSE'][l] = 0
+                        dist_match['MSE']['NormalG'][l] = 0
+                        dist_match['MSE']['LearnedG'][l] = 0
+                        metrics['MMD'][l] = 0
+                        metrics_blockmem['MMD'][l] = 0
+                        dist_match['MMD']['NormalG'][l] = 0
+                        dist_match['MMD']['LearnedG'][l] = 0
+                        first_time[l] = False
+
+                    h = len(intermediate_feat_out[l][0])
+                    bd_i = 0
+                    for b in range(bd):
+
+                        # get output to layer
+                        block_in = self.block_helper_dict[l][b].unflatten(intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)])
+
+                        # update block helper
+                        block_mem = self.block_helper_dict[l][b].generate_samples()
+
+                        module = self.previous_teacher.solver.get_layer(l+1)[b]
+                        if self.task_count > 1:
+                            module_past = self.previous_previous_teacher.solver.get_layer(l+1)[b]
+
+                        # freeze bn
+                        # for m in module:
+                        #     m.eval()
+                        module.eval()
+                        if self.task_count > 1:
+                            # for m in module_past:
+                            #     m.eval()
+                            module_past.eval()
+
+                        current = module.forward(block_in)
+                        current_mem = module.forward(block_mem)
+                        if self.task_count > 1:
+                            past = module_past.forward(block_in)
+                            past_mem = module_past.forward(block_mem)
+
+                        # generate metrics
+                        metrics['CKA'][l] += 0
+                        metrics_blockmem['CKA'][l] += 0
+                        dist_match['CKA']['NormalG'][l] += 0
+                        dist_match['CKA']['LearnedG'][l] += 0
+
+                        metrics['MSE'][l] += 0
+                        metrics_blockmem['MSE'][l] += 0
+                        dist_match['MSE']['NormalG'][l] += 0
+                        dist_match['MSE']['LearnedG'][l] += 0
+
+                        metrics['MMD'][l] += 0
+                        metrics_blockmem['MMD'][l] += 0
+                        dist_match['MMD']['NormalG'][l] += 0
+                        dist_match['MMD']['LearnedG'][l] += 0
+                        # metrics use data from previous tasks (self.last_last_valid_out_dim), dist_match uses data from current task
+                        # list.extend(metric.cpu().detach().numpy().tolist()))
+
+                        
+                        # unfreeze bn
+                        # for m in module:
+                        #     m.train()
+                        module.train()
+
+                        # increment block
+                        bd_i += int(h/bd)
+
+            
+        self.train(orig_mode)
+
+        # save results
+        savedir = topdir + name + '/block_metrics/'
+        if not os.path.exists(savedir): os.makedirs(savedir)
+        savename = savedir 
+        import yaml
+        for metric in ['CKA','MSE','MMD']:
+
+            with open(savedir + 'raw-'+metric, 'w') as yaml_file:
+                yaml.dump(metrics[metric], yaml_file, default_flow_style=False)
+            with open(savedir + 'blockmem-'+metric, 'w') as yaml_file:
+                yaml.dump(metrics_blockmem[metric], yaml_file, default_flow_style=False)
+            with open(savedir + 'dist-'+metric, 'w') as yaml_file:
+                yaml.dump(dist_match[metric], yaml_file, default_flow_style=False)
+
+
+
+
+class LWF_FRB_DFC_lwfb(LWF):
+
+    def __init__(self, learner_config):
+        super(LWF_FRB_DFC_lwfb, self).__init__(learner_config)
+        self.kd_criterion = nn.MSELoss(reduction='mean')
+        self.mmd_loss = MMD_loss()
+        self.beta = learner_config['beta']
+        self.block_helper_dict = {}
+        self.block_reg_term = {}
+
+    def update_model(self, inputs, targets, target_KD = None):
+        
+
+        if not self.first_task:
+            import copy
+            self.model.conv1 = copy.deepcopy(self.model.conv1)
+
+        # get logits and intermediate features
+        intermediate_feat_out, logits, bd = self.model.forward(x=inputs, div = True)
+        logits = logits[:,:self.valid_out_dim]
+
+        # class loss
+        if self.KD and target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+        else:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
+            
+        # Constrain to distribution
+        loss_dist = torch.zeros((1,), requires_grad=True).cuda()
+        loss_kd = torch.zeros((1,), requires_grad=True).cuda()
+        nl = len(intermediate_feat_out)
+        for l in range(nl):
+
+            h = len(intermediate_feat_out[l][0])
+            bd_i = 0
+            for b in range(bd):
+
+                # get output to layer
+                block_in = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
+                
+                ##################
+                # CONTRIBUTION 1 #
+                ##################
+                # first loss is distribution constrain
+                # loss_dist = self.dist_loss(block_in) + loss_dist
+                loss_dist = 0 + loss_dist
+
+                # second loss is sampling kd, after first task
+                if not self.first_task:
+
+                    ##################
+                    # CONTRIBUTION 2 #
+                    ##################
+                    # sample from block for KD
+                    # block_in = torch.randn(self.model.size_array[l]).cuda()
+                    block_in = self.block_helper_dict[l][b].generate_samples()
+
+                    module = self.model.get_layer(l+1)[b]
+                    module_past = self.previous_teacher.solver.get_layer(l+1)[b]
+
+                    # freeze bn
+                    # for m in module:
+                    #     m.eval()
+                    # for m in module_past:
+                    #     m.eval()
+                    module.eval()
+                    module_past.eval()
+
+                    current = torch.sigmoid(module.forward(block_in))
+                    with torch.no_grad():
+                        past = torch.sigmoid(module_past.forward(block_in))
+                    if not self.first_task:
+                        loss_kd = self.kd_criterion(current, past) + loss_kd
+                        # loss_kd = loss_kd + self.ce_loss(current, past) / len(current)
+
+                        # sample_ind = np.random.choice(block_in.size(1), 100)
+                        # loss_kd = self.mmd_loss(current.reshape(len(current),-1)[:,sample_ind], past.reshape(len(past),-1)[:,sample_ind]) + loss_kd
+
+                        # reg_loss = 0
+                        # for n, p in self.block_reg_term[l][b]['params'].items():
+                        #     importance = self.block_reg_term[l][b]['importance'][n]
+                        #     reg_loss += (importance * (p - self.block_reg_term[l][b]['values'][n]) ** 2).sum()
+                        # reg_loss += reg_loss
+                        # loss_kd = reg_loss + loss_kd
+                    
+                    # # # unfreeze bn
+                    # for m in module:
+                    #     m.train()
+                    module.train()
 
                 # increment block
                 bd_i += int(h/bd)
 
         # total loss
-        loss_dist = loss_dist / (bd * nl)
-        loss_kd =   loss_kd   / (bd * nl)
-
         # scaling
-        loss_dist = loss_dist * self.beta
-        loss_kd =   loss_kd * self.mu 
+        loss_dist = loss_dist * self.beta / (nl*bd)
+        loss_kd =   loss_kd * self.mu / (nl*bd)
         
         if self.first_task:
             total_loss = loss_class + loss_dist
@@ -809,6 +988,78 @@ class LWF_FRB_DF(LWF):
 
         return total_loss.detach(), loss_class.detach(), loss_kd.detach(), logits 
 
+    def accumulate_block_memory(self, train_loader):
+        
+        # verify in eval mode
+        self.model.eval()
+        for i, (x, y, task)  in enumerate(train_loader):
+
+            # send data to gpu
+            if self.gpu:
+                x = [x[k].cuda() for k in range(len(x))]
+                y = y.cuda()
+
+            # get logits and intermediate features
+            intermediate_feat_out, logits, bd = self.model.forward(x=x[0], div = True)
+            logits = logits[:,:self.valid_out_dim]
+            logits.pow_(2)
+            loss = logits.mean()
+            self.model.zero_grad()
+            loss.backward()
+
+            # Constrain to distribution
+            nl = len(intermediate_feat_out)
+            for l in range(nl):
+                
+                # get helper block layer
+                if not l in self.block_helper_dict:
+                    self.block_helper_dict[l] = {}
+                if not l in self.block_reg_term:
+                    self.block_reg_term[l] = {}
+
+                h = len(intermediate_feat_out[l][0])
+                bd_i = 0
+                for b in range(bd):
+
+                    # get helper block
+                    if not b in self.block_helper_dict[l]:
+                        self.block_helper_dict[l][b] = ModuleHelper(self.model.size_array[l], bd)
+
+                    # get output to layer
+                    block_in = intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)]
+
+                    # update block helper
+                    self.block_helper_dict[l][b].update_memory(block_in)
+
+                    # get module
+                    module = self.model.get_layer(l+1)[b]
+
+                    # freeze bn
+                    # for m in module:
+                    #     m.eval()
+                    module.eval()
+
+                    # get helper block
+                    if not b in self.block_reg_term[l]:
+                        self.block_reg_term[l][b] = {}
+                        self.block_reg_term[l][b]['params'] = {n: p for n, p in module.named_parameters() if p.requires_grad}
+                        self.block_reg_term[l][b]['values'] = {}
+                        self.block_reg_term[l][b]['importance'] = {}
+                        for n, p in self.block_reg_term[l][b]['params'].items():
+                            self.block_reg_term[l][b]['values'][n] = p.clone().detach()
+                            self.block_reg_term[l][b]['importance'][n] = 0
+
+                    for n, p in self.block_reg_term[l][b]['params'].items():
+                        if p.grad is not None:
+                            self.block_reg_term[l][b]['importance'][n] = (p.grad.abs() / len(train_loader)) + self.block_reg_term[l][b]['importance'][n]
+
+                    # increment block
+                    bd_i += int(h/bd)
+
+        # update block helper loader
+        for l in range(nl):
+            for b in range(bd):
+                self.block_helper_dict[l][b].update_loader(self.task_count)
 
     def n_task_class_loss(self, inputs, logits, targets, target_KD):
         target_mod = get_one_hot(targets, self.valid_out_dim)
@@ -816,31 +1067,125 @@ class LWF_FRB_DF(LWF):
         loss_class = self.ce_loss(torch.sigmoid(logits), target_mod) / len(logits)
         return loss_class
 
-    def dist_loss(self,block_out):
-
-        return torch.zeros((1,), requires_grad=True).cuda()
-
-class LWF_FRB_DF_MMD(LWF_FRB_DF):
-
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_MMD, self).__init__(learner_config)
-
-    def dist_loss(self,block_out):
-        sample_ind = np.random.choice(block_out.size(1), 100)
-        block_out = block_out[:,sample_ind]
-        block_target = torch.randn(block_out.size()).cuda()
-        loss_dist = self.mmd_loss(block_out,block_target)
+    def dist_loss(self,block_in):
+        sample_ind = np.random.choice(block_in.size(1), 100)
+        block_in = block_in[:,sample_ind]
+        block_target = torch.randn(block_in.size()).cuda()
+        loss_dist = self.mmd_loss(block_in,block_target)
         return loss_dist
 
-class LWF_FRB_DF_COV(LWF_FRB_DF):
+    def visualization(self, dataloader, topdir, name, task, embedding):
 
-    def __init__(self, learner_config):
-        super(LWF_FRB_DF_COV, self).__init__(learner_config)
+        # past vis
+        super(LWF_FRB_DFC_lwfb, self).visualization(dataloader, topdir, name, task, embedding)
 
-    def dist_loss(self,block_out):
-        block_cov = cov(block_out)
-        loss_dist = torch.pow(block_out.mean(dim=0),2).sum()/len(block_out) + torch.pow(block_cov - torch.eye(block_cov.size(0)).cuda(),2).sum()/len(block_out) 
-        return loss_dist
+        # if self.task_count == 0: return
+
+        # # gather data
+        # orig_mode = self.training
+        # self.eval()
+        # metrics = {'CKA':{},'MSE':{},'MMD':{}} # layer, then average (over blocks) for CKA, MSE, and MMD
+        # metrics_blockmem = {'CKA':{},'MSE':{},'MMD':{}} # layer, then average (over blocks) for CKA, MSE, and MMD
+        # dist_match = {'CKA':{'NormalG':{},'LearnedG':{}},'MSE':{'NormalG':{},'LearnedG':{}},'MMD':{'NormalG':{},'LearnedG':{}}} # layer, then average (over blocks) for {MSE, MMD} with {normal, learned gaussian}
+        # for i, (input, target, _) in enumerate(dataloader):
+        #     if self.gpu:
+        #         with torch.no_grad():
+        #             x = input.cuda()
+                
+        #     # get logits and intermediate features
+        #     intermediate_feat_out, feat, bd = self.previous_teacher.solver.forward(x=x, pen=True, div = True)
+
+        #     # Constrain to distribution
+        #     with torch.no_grad():
+        #         nl = len(intermediate_feat_out)
+        #         first_time = [True for l in range(nl)]
+        #         for l in range(nl):
+
+        #             if first_time[l]:
+        #                 metrics['CKA'][l] = 0
+        #                 metrics_blockmem['CKA'][l] = 0
+        #                 dist_match['CKA']['NormalG'][l] = 0
+        #                 dist_match['CKA']['LearnedG'][l] = 0
+        #                 metrics['MSE'][l] = 0
+        #                 metrics_blockmem['MSE'][l] = 0
+        #                 dist_match['MSE']['NormalG'][l] = 0
+        #                 dist_match['MSE']['LearnedG'][l] = 0
+        #                 metrics['MMD'][l] = 0
+        #                 metrics_blockmem['MMD'][l] = 0
+        #                 dist_match['MMD']['NormalG'][l] = 0
+        #                 dist_match['MMD']['LearnedG'][l] = 0
+        #                 first_time[l] = False
+
+        #             h = len(intermediate_feat_out[l][0])
+        #             bd_i = 0
+        #             for b in range(bd):
+
+        #                 # get output to layer
+        #                 block_in = self.block_helper_dict[l][b].unflatten(intermediate_feat_out[l][:,bd_i:bd_i+int(h/bd)])
+
+        #                 # update block helper
+        #                 block_mem = self.block_helper_dict[l][b].generate_samples()
+
+        #                 module = self.previous_teacher.solver.get_layer(l+1)[b]
+        #                 if self.task_count > 1:
+        #                     module_past = self.previous_previous_teacher.solver.get_layer(l+1)[b]
+
+        #                 # freeze bn
+        #                 for m in module:
+        #                     m.eval()
+        #                 if self.task_count > 1:
+        #                     for m in module_past:
+        #                         m.eval()
+
+        #                 current = module.forward(block_in)
+        #                 current_mem = module.forward(block_mem)
+        #                 if self.task_count > 1:
+        #                     past = module_past.forward(block_in)
+        #                     past_mem = module_past.forward(block_mem)
+
+        #                 # generate metrics
+        #                 metrics['CKA'][l] += 0
+        #                 metrics_blockmem['CKA'][l] += 0
+        #                 dist_match['CKA']['NormalG'][l] += 0
+        #                 dist_match['CKA']['LearnedG'][l] += 0
+
+        #                 metrics['MSE'][l] += 0
+        #                 metrics_blockmem['MSE'][l] += 0
+        #                 dist_match['MSE']['NormalG'][l] += 0
+        #                 dist_match['MSE']['LearnedG'][l] += 0
+
+        #                 metrics['MMD'][l] += 0
+        #                 metrics_blockmem['MMD'][l] += 0
+        #                 dist_match['MMD']['NormalG'][l] += 0
+        #                 dist_match['MMD']['LearnedG'][l] += 0
+        #                 # metrics use data from previous tasks (self.last_last_valid_out_dim), dist_match uses data from current task
+        #                 # list.extend(metric.cpu().detach().numpy().tolist()))
+
+                        
+        #                 # unfreeze bn
+        #                 for m in module:
+        #                     m.train()
+
+        #                 # increment block
+        #                 bd_i += int(h/bd)
+
+            
+        # self.train(orig_mode)
+
+        # # save results
+        # savedir = topdir + name + '/block_metrics/'
+        # if not os.path.exists(savedir): os.makedirs(savedir)
+        # savename = savedir 
+        # import yaml
+        # for metric in ['CKA','MSE','MMD']:
+
+        #     with open(savedir + 'raw-'+metric, 'w') as yaml_file:
+        #         yaml.dump(metrics[metric], yaml_file, default_flow_style=False)
+        #     with open(savedir + 'blockmem-'+metric, 'w') as yaml_file:
+        #         yaml.dump(metrics_blockmem[metric], yaml_file, default_flow_style=False)
+        #     with open(savedir + 'dist-'+metric, 'w') as yaml_file:
+        #         yaml.dump(dist_match[metric], yaml_file, default_flow_style=False)
+
 
 
 class SSIL(LWF):
@@ -882,7 +1227,6 @@ class SSIL(LWF):
         total_loss.backward()
         self.optimizer.step()
         return total_loss.detach(), loss_class.detach(), loss_distill.detach(), logits
-
 
 class BIC(LWF):
 
@@ -1297,30 +1641,6 @@ class MMD_loss(nn.Module):
         YX = kernels[batch_size:, :batch_size]
         loss = torch.mean(XX + YY - XY -YX)
         return loss
-
-class DeepInversionFeatureHook():
-    '''
-    Implementation of the forward hook to track feature statistics and compute a loss on them.
-    Will compute mean and variance, and will use l2 as a loss
-    '''
-
-    def __init__(self, module):
-        self.hook = module.register_forward_hook(self.hook_fn)
-        self.target = None
-
-    def hook_fn(self, module, input, output):
-
-        # hook co compute deepinversion's feature distribution regularization
-        nch = input[0].shape[1]
-        mean = input[0].mean([0, 2, 3])
-        var = input[0].permute(1, 0, 2, 3).contiguous().view([nch, -1]).var(1, unbiased=False) + 1e-8
-        r_feature = torch.log(var**(0.5) / (module.running_var.data.type(var.type()) + 1e-8)**(0.5)).mean() - 0.5 * (1.0 - (module.running_var.data.type(var.type()) + 1e-8 + (module.running_mean.data.type(var.type())-mean)**2)/var).mean()
-
-        self.r_feature = r_feature
-
-            
-    def close(self):
-        self.hook.remove()
 
 def cov(x, rowvar=False, bias=False, ddof=None, aweights=None):
     """Estimates covariance matrix like numpy.cov"""
