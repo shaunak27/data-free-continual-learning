@@ -233,6 +233,7 @@ class Trainer:
                         'overwrite': args.overwrite == 1,
                         'mu': args.mu,
                         'beta': args.beta,
+                        'eps': args.eps,
                         'DW': args.DW,
                         'KD': args.KD,
                         'batch_size': args.batch_size,
@@ -363,6 +364,7 @@ class Trainer:
             # if self.vis_flag:
             #     self.train_vis(vis_dir, 'pre', i, pre=True)
             self.learner.debug_dir = vis_dir
+            self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
 
             # learn
             self.test_dataset.load_dataset(i, train=False)
@@ -407,7 +409,7 @@ class Trainer:
                 for j in range(i+1):
                     til += self.task_eval(j, local=True)
                 avg_metrics['til']['global'][i] = til / (i+1)
-                if i > 0: avg_metrics['cka']['global'][i] = self.sim_eval(i, local=False)
+                if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i] = self.sim_eval(i, local=False)
 
             # HERE JAMES
             # print(apple)

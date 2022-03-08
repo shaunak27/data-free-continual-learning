@@ -49,7 +49,6 @@ def cka_plot(save_file, x, y_array, y_label_array):
 
 
 def tsne_eval_new(X_in, Y, Ym, Y_pred,  marker_label, save_name, save_name_b, save_name_c, title, num_colors, need_tsne=False):
-
     from tsne import bh_sne
     
     # tsne embeddings
@@ -174,67 +173,6 @@ def tsne_eval_new(X_in, Y, Ym, Y_pred,  marker_label, save_name, save_name_b, sa
 
 
 def tsne_eval(X_in, Y, save_name, title, num_colors, clusters=None):
-    
-#     num_colors += 1
-
-#     # sample for TSNE
-#     sample_ind = np.random.choice(len(X_in), NUM_TSNE, replace=False)
-#     X_in = X_in[sample_ind]
-#     Y = Y[sample_ind]
-
-#     # add in clusters
-#     if clusters is not None:
-#         X_in = np.concatenate((X_in, clusters), axis=0)
-#         Y = np.concatenate((Y,-1*np.ones(len(clusters))), axis=0).astype(int)
-
-#     # tsne embeddings
-#     X = bh_sne(X_in)
-#     X[:,0] = (X[:,0] - min(X[:,0])) / (max(X[:,0]) - min(X[:,0]))
-#     X[:,1] = (X[:,1] - min(X[:,1])) / (max(X[:,1]) - min(X[:,1]))
-    
-#     cmap = plt.get_cmap('jet')
-#     colors = cmap(np.linspace(0, 1.0, num_colors))
-#     for i in np.unique(Y):
-#         if i >= 0:
-#             index = np.where(Y == i)[0]
-#             plt.scatter(
-#                     X[index,0],
-#                     X[index,1],
-#                     c=[colors[i+1] for j in range(len(index))],
-#                     s=1.5,
-#                     label="class " + str(i)
-#                 )
-#     plt.scatter(
-#                 X[:,0],
-#                 X[:,1],
-#                 c=[colors[Y[j]] for j in range(len(X))],
-#                 s=1.5,
-#             )
-    
-#     # plot cluster centers
-#     index = np.where(Y == -1)[0]
-#     if len(index) > 0:
-#         plt.scatter(
-#                 X[index,0],
-#                 X[index,1],
-#                 c=[colors[-1] for j in range(len(index))],
-#                 s=50,
-#                 marker='*',
-#                 label="clusters"
-#             )
-    
-#     plt.ylabel("TSNE-1", fontweight="bold", fontsize=12)
-#     plt.xlabel("TSNE-2", fontweight="bold", fontsize=12)
-#     plt.title(
-#         "TSNE Component Analysis - " + str(title),
-#         fontweight="bold",
-#         fontsize=14,
-#     )
-#     plt.grid()
-#     # plt.legend()
-#     plt.tight_layout()
-#     plt.savefig(save_name+'tsne.png')
-#     plt.close()
   pass
 
 def pca_eval(X_in, Y, save_name, title, num_colors, embedding, clusters=None):

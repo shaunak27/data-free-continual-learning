@@ -7,9 +7,12 @@ SPLIT=10
 DATASET=CIFAR100
 N_CLASS=100
 
-###############################################################
+######################################################################
+# TO-DO                                                              #
+# LOOK AT LONG TASK SEQUENCES                                        #
+######################################################################
 # save directory
-DATE=feb-1
+DATE=colla
 OUTDIR=outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # debuging flags
@@ -21,22 +24,16 @@ MAXTASK=-1
 REPEAT=1
 SCHEDULE="100 150 200 250"
 vis_flag=1
-BS=128
+BS=256
 WD=0.0002
 MOM=0.9
 
 # optimizer
-OPT="SGD"  
-LR=0.1
+OPT="Adam"
+LR=0.001
 
 # environment parameters
 MEMORY=2000
-
-#
-# algorithm parameters
-#
-BLOCKSIZE_SRP=8
-P_ITERS=10000
 
 ###############################################################
 
@@ -45,127 +42,246 @@ if [ $DEBUG -eq 1 ]
 then   
     MAXTASK=3
     SCHEDULE="2"
-    P_ITERS=10
 fi
 mkdir -p $OUTDIR
 
-MODELNAME=resnet32
-
-if [ $GPUID -eq 0 ] 
-then
-
-    # LWF
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --memory 0  --model_name resnet32  --model_type resnet --KD \
-        --learner_type kd --learner_name LWF_MC \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_0
-
-    # upper bound
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $N_CLASS --other_split_size 0  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --memory 0  --model_name $MODELNAME  --model_type resnet \
-        --learner_type default --learner_name NormalNN \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/UB
-
-    # base
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --memory 0  --model_name $MODELNAME  --model_type resnet \
-        --learner_type default --learner_name NormalNN \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/base_0
-
-    # base
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --memory $MEMORY  --model_name $MODELNAME  --model_type resnet \
-        --learner_type default --learner_name NormalNN \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/rehearsal_${MEMORY}
-
-    # LWF
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
-        --learner_type kd --learner_name LWF_MC \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_${MEMORY}
-
-    # BiC
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --mu 1.0 --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
-        --learner_type kd --learner_name BIC --DW \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/bic_${MEMORY}
-
-    # SS-IL
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --mu 1.0 --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
-        --learner_type kd --learner_name SSIL \
-        --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ssil_${MEMORY}
-
-    # ABD
-    python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-        --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-        --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-        --mu 0.1 --memory 0 --model_name $MODELNAME  --model_type resnet \
-        --learner_type deep_inv_gen --learner_name DeepInversionGenBN_agem_l2  \
-        --gen_model_name Autoencoder_cifar --gen_model_type generator \
-        --playground_flag \
-        --refresh_iters 5 --beta 1 --power_iters $P_ITERS --deep_inv_params 0 1e-3 5e1 1e-3 0 1 1e3 1 0 \
-        --vis_flag 0 --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/abd
-
-fi
-
-if [ $GPUID -eq 1 ] 
-then
-
-    # LWF - EWC
-    for MU in 10 5 2 1 0.5 0.1 0.01 0.001 20 50
+for LR in 1e-3 1e-4 1e-2
+do
+    OUTDIR_LR=${OUTDIR}/lr-${LR}
+    for MEMORY in 0 2000
     do
-        python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-            --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-            --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-            --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
-            --learner_type kd --learner_name LWF_MC_ewc \
-            --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewc/${MU}
+        OUTDIR_MEM=${OUTDIR_LR}/mem-${MEMORY}
+        for MODELNAME in resnet18 resnet18_pt
+        do
+            OUTDIR_MODEL=${OUTDIR_MEM}/${MODELNAME}
+            if [ $GPUID -eq 0 ] 
+            then
+
+                # EWC with l2 start
+                EPS=-0.05
+                MU=10
+                BETA=5e-4
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l2start
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS  \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L2START --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                BETA=0
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l2start_ablate-beta
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS  \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L2START --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                
+                # # EWC with no logit distill
+                # EPS=0
+                # MU=10
+                # BETA=5e-4
+                # OUTDIR=${OUTDIR_MODEL}/ewc-mc-nologitkd
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS --playground_flag --temp -1 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/ewc-mc-local
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS --playground_flag --temp -2 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/ewc
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS --playground_flag --temp -3 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/ewc-lwf
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS --playground_flag --temp -4 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                
+                # # Lwf with feature space KD and no logit distill
+                # MU=5e1
+                # OUTDIR=${OUTDIR_MODEL}/lwf-mc-featkd-nologitkd
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name LWF_MC_FEATKD --mu $MU --playground_flag --temp -1 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/lwf-mc-featkd-local
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name LWF_MC_FEATKD --mu $MU --playground_flag --temp -2 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/featkd
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name LWF_MC_FEATKD --mu $MU --playground_flag --temp -3 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                # OUTDIR=${OUTDIR_MODEL}/lwf-featkd
+                # python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                #     --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                #     --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                #     --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                #     --learner_type kd --learner_name LWF_MC_FEATKD --mu $MU --playground_flag --temp -4 \
+                #     --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                
+                # 2nd
+                #
+                # implement white board metrics
+                # analyze cka/lsa plots for memory
+                #
+                #
+                #
+                # 3rd
+                #
+                # trepeat hyperparameters from non-pretrain - make sure hard feat distillation and l2 reg turned off first step 1? Maybe try both?
+                # compare to frozen layer method
+                #
+                #
+                #
+                # later
+                #
+                # inversion replay in last 1/3 layers, valided by findings
+
+            fi
+            if [ $GPUID -eq 1 ] 
+            then
+
+                # EWC
+                MU=10
+                BETA=5e-4
+                EPS=0
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                BETA=1e-1
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc_high-beta
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                BETA=0
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc_ablate-beta
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+
+            fi
+            if [ $GPUID -eq 2 ] 
+            then
+
+                # Lwf with feature space KD
+                MU_KD=5e1
+                OUTDIR=${OUTDIR_MODEL}/lwf-mc-featkd
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name LWF_MC_FEATKD --mu $MU_KD \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                
+                # EWC-L1
+                MU=10
+                BETA-1e-4
+                EPS=1e-4
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l1
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2 --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                BETA=0
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l1_ablate-beta
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2 --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                MU=0
+                OUTDIR=${OUTDIR_MODEL}/mc-l1
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2  --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+   
+            fi
+            if [ $GPUID -eq 3 ] 
+            then
+
+                # LWF
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name LWF_MC \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR_MODEL}/lwf-mc
+                
+                # base
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet \
+                    --learner_type default --learner_name NormalNN \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR_MODEL}/base     
+                
+                # EWC-L2
+                MU=10
+                BETA=1e-4
+                EPS=-0.05
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l2
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2  --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                BETA=0
+                OUTDIR=${OUTDIR_MODEL}/ewc-mc-l2_ablate-beta
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2  --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+                MU=0
+                OUTDIR=${OUTDIR_MODEL}/mc-l2
+                python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
+                    --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
+                    --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
+                    --memory $MEMORY  --model_name $MODELNAME  --model_type resnet --KD \
+                    --learner_type kd --learner_name EWC_MC_L1L2  --mu $MU --beta $BETA --eps $EPS \
+                    --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir $OUTDIR
+            
+            fi
+        done
     done
-fi
-
-if [ $GPUID -eq 2 ] 
-then
-
-    # EWC
-    for MU in 10 5 2 1 0.5 0.1 0.01 0.001 20 50
-    do
-        python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-            --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-            --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-            --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
-            --learner_type kd --learner_name MC_ewc \
-            --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/ewc/${MU}
-    done
-
-fi
-
-if [ $GPUID -eq 3 ] 
-then
-
-    # LWF - EWC B
-    for MU in 10 5 2 1 0.5 0.1 0.01 0.001 20 50
-    do
-        python -u run_ucl.py --dataset $DATASET --train_aug --rand_split --gpuid $GPUID --repeat $REPEAT \
-            --first_split_size $SPLIT --other_split_size $SPLIT  --schedule $SCHEDULE --schedule_type decay --batch_size $BS    \
-            --optimizer $OPT --lr $LR --momentum $MOM --weight_decay $WD \
-            --memory 0  --model_name resnet32  --model_type resnet --KD --mu $MU \
-            --learner_type kd --learner_name LWF_MC_ewc_b \
-            --vis_flag $vis_flag --overwrite $OVERWRITE --debug_mode $DEBUG --max_task $MAXTASK --log_dir ${OUTDIR}/lwf_ewcb/${MU}
-    done
-
-fi
+done

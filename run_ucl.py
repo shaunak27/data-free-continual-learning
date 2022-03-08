@@ -63,10 +63,6 @@ def create_args():
     # cluster parameters
     parser.add_argument('--online_cluster', default=False, action='store_true', help='clustering takes place with feature learning')
 
-    # DBSCAN parameters
-    parser.add_argument('--eps', type=float, default=0.85, help="cluster epsilon")
-    parser.add_argument('--MinPts', type=int, default=5, help="min points for cluster in DBSCAN")
-
     # data free knoweldge distilation
     parser.add_argument('--power_iters', type=int, default=10, help="backprop power iterations for producing images")
     parser.add_argument('--refresh_iters', type=int, default=10, help="update gen images")
@@ -89,7 +85,8 @@ def create_args():
     parser.add_argument('--block_size', type=int, default=1)
     parser.add_argument('--layer_freeze', type=int, default=1)
     parser.add_argument('--mu', type=float, default=1.0)
-    parser.add_argument('--beta', type=float, default=0.1)
+    parser.add_argument('--beta', type=float, default=1.0)
+    parser.add_argument('--eps', type=float, default=1.0)
 
 
     return parser
