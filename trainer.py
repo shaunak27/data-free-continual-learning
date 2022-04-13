@@ -247,6 +247,7 @@ class Trainer:
                         'top_k': self.top_k,
                         'block_size': args.block_size,
                         'layer_freeze': args.layer_freeze,
+                        'balanced_bce': args.balanced_bce,
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)

@@ -6,17 +6,30 @@ import torchvision.models as models
 from torch.autograd import Variable
 
 class ResNetZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=False):
+    def __init__(self, num_classes=10, pt=False, mode=1):
         super(ResNetZoo, self).__init__()
 
         # get last layer
         self.last = nn.Linear(512, num_classes)
 
         # get feature encoder
-        if pt:
-            zoo_model = models.resnet18(pretrained=True)
-        else:
-            zoo_model = models.resnet18(pretrained=False)
+        if mode == 1:
+            if pt:
+                zoo_model = models.resnet18(pretrained=True)
+            else:
+                zoo_model = models.resnet18(pretrained=False)
+        elif mode == 2:
+            if pt:
+                zoo_model = models.resnet34(pretrained=True)
+            else:
+                zoo_model = models.resnet34(pretrained=False)
+        elif mode == 3:
+            self.last = nn.Linear(2048, num_classes)
+            if pt:
+                zoo_model = models.wide_resnet50_2(pretrained=True)
+            else:
+                zoo_model = models.wide_resnet50_2(pretrained=False)
+
         self.feat = torch.nn.Sequential(*(list(zoo_model.children())[:-1]))
 
     def forward(self, x, pen=False, l=None):
@@ -52,7 +65,19 @@ class ResNetZoo(nn.Module):
 
  
 def resnet18(out_dim, block_division = None):
-    return ResNetZoo(num_classes=out_dim, pt=False)
+    return ResNetZoo(num_classes=out_dim, pt=False, mode=1)
 
 def resnet18_pt(out_dim, block_division = None):
-    return ResNetZoo(num_classes=out_dim, pt=True)
+    return ResNetZoo(num_classes=out_dim, pt=True, mode=1)
+
+def resnet34(out_dim, block_division = None):
+    return ResNetZoo(num_classes=out_dim, pt=False, mode=2)
+
+def resnet34_pt(out_dim, block_division = None):
+    return ResNetZoo(num_classes=out_dim, pt=True, mode=2)
+
+def WRN50_2(out_dim, block_division = None):
+    return ResNetZoo(num_classes=out_dim, pt=False, mode=3)
+
+def WRN50_2_pt(out_dim, block_division = None):
+    return ResNetZoo(num_classes=out_dim, pt=True, mode=3)

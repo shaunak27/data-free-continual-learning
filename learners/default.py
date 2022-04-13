@@ -341,135 +341,137 @@ class NormalNN(nn.Module):
 
     def cka_eval(self, dataloader):
 
+        try:
+            # deep CKA analysis
+            if True and self.task_count > 1:
+                vis_dir = self.debug_dir + 'cka_plots' + '/'
+                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
+                l_values = [0,1,2,3,4,5]
 
-        # deep CKA analysis
-        if True and self.task_count > 1:
-            vis_dir = self.debug_dir + 'cka_plots' + '/'
-            if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-            l_values = [0,1,2,3,4,5]
+                for t_anchor in range(self.task_count):
 
-            for t_anchor in range(self.task_count):
+                    # get file name
+                    filename = vis_dir + str(t_anchor+1) + '.png'
+                    cka_array = []
+                    acc_array = []
 
-                # get file name
-                filename = vis_dir + str(t_anchor+1) + '.png'
-                cka_array = []
-                acc_array = []
+                    # load model anchor
+                    m_a = self.create_model()
+                    m_a = self.load_model_other(self.debug_model_dir+str(t_anchor+1)+'/',m_a)
+                    teacher_a = Teacher(m_a)
 
-                # load model anchor
-                m_a = self.create_model()
-                m_a = self.load_model_other(self.debug_model_dir+str(t_anchor+1)+'/',m_a)
-                teacher_a = Teacher(m_a)
+                    # get task
+                    task_in = self.tasks[t_anchor]
+                    cka_array.append([1.0 for l in range(len(l_values))])
+                    acc_array.append(self.validation(dataloader, model=m_a, task_in = task_in, cka_flag=task_in[-1]))
 
-                # get task
-                task_in = self.tasks[t_anchor]
-                cka_array.append([1.0 for l in range(len(l_values))])
-                acc_array.append(self.validation(dataloader, model=m_a, task_in = task_in, cka_flag=task_in[-1]))
+                    for t_drift in range(t_anchor+1,self.task_count):
+                        # load model drift
+                        m_b = self.create_model()
+                        m_b = self.load_model_other(self.debug_model_dir+str(t_drift+1)+'/',m_b)
+                        teacher_b = Teacher(m_b)
 
-                for t_drift in range(t_anchor+1,self.task_count):
-                    # load model drift
-                    m_b = self.create_model()
-                    m_b = self.load_model_other(self.debug_model_dir+str(t_drift+1)+'/',m_b)
-                    teacher_b = Teacher(m_b)
+                        # get cka similarity between two models
+                        layer_array = []
+                        for l in l_values:
+                            X_anchor = []
+                            X_drift = []
+                            for i, (input, target, _) in enumerate(dataloader):
+                                if self.gpu:
+                                    with torch.no_grad():
+                                        input = input.cuda()
+                                        target = target.cuda()
 
-                    # get cka similarity between two models
-                    layer_array = []
-                    for l in l_values:
-                        X_anchor = []
-                        X_drift = []
-                        for i, (input, target, _) in enumerate(dataloader):
-                            if self.gpu:
-                                with torch.no_grad():
-                                    input = input.cuda()
-                                    target = target.cuda()
+                                mask = target >= task_in[0]
+                                mask_ind = mask.nonzero().view(-1) 
+                                input, target = input[mask_ind], target[mask_ind]
 
-                            mask = target >= task_in[0]
-                            mask_ind = mask.nonzero().view(-1) 
-                            input, target = input[mask_ind], target[mask_ind]
+                                mask = target < task_in[-1]
+                                mask_ind = mask.nonzero().view(-1) 
+                                input, target = input[mask_ind], target[mask_ind]
 
-                            mask = target < task_in[-1]
-                            mask_ind = mask.nonzero().view(-1) 
-                            input, target = input[mask_ind], target[mask_ind]
+                                if len(target) > 0:
 
-                            if len(target) > 0:
+                                    # current
+                                    penultimate_anchor = teacher_a.generate_scores_layer(input,l)
+                                    X_anchor.extend(penultimate_anchor.cpu().detach().tolist())
 
-                                # current
-                                penultimate_anchor = teacher_a.generate_scores_layer(input,l)
-                                X_anchor.extend(penultimate_anchor.cpu().detach().tolist())
+                                    # past
+                                    penultimate_drift = teacher_b.generate_scores_layer(input,l)
+                                    X_drift.extend(penultimate_drift.cpu().detach().tolist())
 
-                                # past
-                                penultimate_drift = teacher_b.generate_scores_layer(input,l)
-                                X_drift.extend(penultimate_drift.cpu().detach().tolist())
+                            # convert to arrays
+                            X_anchor = np.asarray(X_anchor)
+                            X_drift = np.asarray(X_drift)
 
-                        # convert to arrays
-                        X_anchor = np.asarray(X_anchor)
-                        X_drift = np.asarray(X_drift)
+                            # return cka score
+                            cka = calculate_cka(X_anchor, X_drift)
+                            layer_array.append(cka)
+                        cka_array.append(layer_array)
+                        acc_array.append(self.validation(dataloader, model=m_b, task_in = task_in, cka_flag=self.tasks[t_drift][-1]))
 
-                        # return cka score
-                        cka = calculate_cka(X_anchor, X_drift)
-                        layer_array.append(cka)
-                    cka_array.append(layer_array)
-                    acc_array.append(self.validation(dataloader, model=m_b, task_in = task_in, cka_flag=self.tasks[t_drift][-1]))
+                    # save plot
+                    if len(cka_array) > 0:
+                        cmap = plt.get_cmap('jet')
+                        colors = cmap(np.linspace(0, 1.0, len(l_values)+1))
+                        plt.figure(figsize=(8,4))
+                        l_legend = ['Linear', 'Pen','L-2','L-3','L-4','L-5']
+                        x = np.arange(len(cka_array)) + 1 + t_anchor
+                        final_acc = np.asarray([cka_array[-1][l] for l in range(len(l_values))])
+                        for s in range(len(l_values)):
+                            i = np.argsort(final_acc)[-s-1]
+                            y = np.asarray([cka_array[j][i] for j in range(len(x))])
+                            plt.plot(x,y,lw=2, color = colors[i], linestyle = 'solid', label = l_legend[i])
+                            plt.scatter(x,y,s=50, color = colors[i])
+                        y = np.asarray(acc_array) / 100.0
+                        plt.plot(x,y,lw=2, color = colors[-1], linestyle = 'dashed', label = 'acc')
+                        plt.scatter(x,y,s=50, color = colors[-1])
+                        tick_x = np.arange(self.task_count) + 1
+                        tick_x_s = []
+                        for tick in tick_x:
+                            tick_x_s.append(str(int(tick)))
+                        plt.xticks(tick_x, tick_x_s,fontsize=14)
+                        plt.ylim(0,1.1)
+                        plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0],fontsize=14)
+                        plt.ylabel('CKA Score', fontweight='bold', fontsize=18)
+                        plt.xlabel('Tasks', fontweight='bold', fontsize=18)
+                        plt.title('CKA Forgetting Analysis for Task = '+str(t_anchor+1), fontsize=18)
+                        plt.legend(loc='lower left', prop={'weight': 'bold', 'size': 10})
+                        plt.grid()
+                        plt.tight_layout()
+                        plt.grid()
+                        plt.savefig(filename,format='png')  
+                        plt.close()
 
-                # save plot
-                if len(cka_array) > 0:
-                    cmap = plt.get_cmap('jet')
-                    colors = cmap(np.linspace(0, 1.0, len(l_values)+1))
-                    plt.figure(figsize=(8,4))
-                    l_legend = ['Linear', 'Pen','L-2','L-3','L-4','L-5']
-                    x = np.arange(len(cka_array)) + 1 + t_anchor
-                    final_acc = np.asarray([cka_array[-1][l] for l in range(len(l_values))])
-                    for s in range(len(l_values)):
-                        i = np.argsort(final_acc)[-s-1]
-                        y = np.asarray([cka_array[j][i] for j in range(len(x))])
-                        plt.plot(x,y,lw=2, color = colors[i], linestyle = 'solid', label = l_legend[i])
-                        plt.scatter(x,y,s=50, color = colors[i])
-                    y = np.asarray(acc_array) / 100.0
-                    plt.plot(x,y,lw=2, color = colors[-1], linestyle = 'dashed', label = 'acc')
-                    plt.scatter(x,y,s=50, color = colors[-1])
-                    tick_x = np.arange(self.task_count) + 1
-                    tick_x_s = []
-                    for tick in tick_x:
-                        tick_x_s.append(str(int(tick)))
-                    plt.xticks(tick_x, tick_x_s,fontsize=14)
-                    plt.ylim(0,1.1)
-                    plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0],fontsize=14)
-                    plt.ylabel('CKA Score', fontweight='bold', fontsize=18)
-                    plt.xlabel('Tasks', fontweight='bold', fontsize=18)
-                    plt.title('CKA Forgetting Analysis for Task = '+str(t_anchor+1), fontsize=18)
-                    plt.legend(loc='lower left', prop={'weight': 'bold', 'size': 10})
-                    plt.grid()
-                    plt.tight_layout()
-                    plt.grid()
-                    plt.savefig(filename,format='png')  
-                    plt.close()
-
-                    
+                        
 
 
 
-        # gather data
-        X_cur = []
-        X_past = []
-        for i, (input, target, _) in enumerate(dataloader):
-            if self.gpu:
-                with torch.no_grad():
-                    input = input.cuda()
-                    target = target.cuda()
+            # gather data
+            X_cur = []
+            X_past = []
+            for i, (input, target, _) in enumerate(dataloader):
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
 
-            # current
-            penultimate_cur = self.previous_teacher.generate_scores_pen(input)
-            X_cur.extend(penultimate_cur.cpu().detach().tolist())
+                # current
+                penultimate_cur = self.previous_teacher.generate_scores_pen(input)
+                X_cur.extend(penultimate_cur.cpu().detach().tolist())
 
-            # past
-            penultimate_past = self.previous_previous_teacher.generate_scores_pen(input)
-            X_past.extend(penultimate_past.cpu().detach().tolist())
+                # past
+                penultimate_past = self.previous_previous_teacher.generate_scores_pen(input)
+                X_past.extend(penultimate_past.cpu().detach().tolist())
 
-        # convert to arrays
-        X_cur = np.asarray(X_cur)
-        X_past = np.asarray(X_past)
+            # convert to arrays
+            X_cur = np.asarray(X_cur)
+            X_past = np.asarray(X_past)
 
-        # return cka score
-        return calculate_cka(X_cur, X_past)
+            # return cka score
+            return calculate_cka(X_cur, X_past)
+        except:
+            return -1
 
 
 

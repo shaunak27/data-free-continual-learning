@@ -54,6 +54,8 @@ def create_args():
     parser.add_argument('--overwrite', type=int, default=0, metavar='N', help='Train regardless of whether saved model exists')
     parser.add_argument('--upper_bound_flag', default=False, action='store_true', help='')
     parser.add_argument('--playground_flag', default=False, action='store_true', help='')
+    parser.add_argument('--balanced_bce', default=False, action='store_true', help='')
+    
     
 
     # layer statistic matching
