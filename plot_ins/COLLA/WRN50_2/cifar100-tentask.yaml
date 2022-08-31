@@ -1,0 +1,33 @@
+title:
+  CIFAR100, 10 classes per task
+save_dir:
+  COLLAS/CIFAR100
+save_name:
+  WRN50_2_tentask
+results:
+  0:
+    file: _outputs/colla_roundb/CIFAR100/UB/WRN50_2/mem-0/lr-1e-3/UB
+    name: Upper-Bound
+  1:
+    file: _outputs/colla_roundb/CIFAR100/10-task/WRN50_2/mem-0/lr-1e-3/base
+    name: Naive
+  2:
+    file: _outputs/colla_roundb/CIFAR100/10-task/WRN50_2/mem-0/lr-1e-3/lwf-mc
+    name: LogitKD
+  3:
+    file: _outputs/colla_roundb/CIFAR100/10-task/WRN50_2/mem-0/lr-1e-3/lwf-mc-featkd
+    name: LogitKD + FeatKD
+  4:
+    file: _outputs/colla_roundb/CIFAR100/10-task/WRN50_2/mem-0/lr-1e-3/ewc-mc
+    name: LogitKD + EWC
+  5:
+    file: _outputs/colla_roundb/CIFAR100/10-task/WRN50_2/mem-0/lr-1e-3/mc-l2
+    name: LogitKD + L2
+split_size:
+  10
+num_tasks:
+  10
+xs:
+  Number of Accumulated Classes
+ys:
+  Test Accuracy (%)

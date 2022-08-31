@@ -8,7 +8,6 @@ import numpy as np
 import random
 from PIL import Image, ImageEnhance, ImageOps, ImageFilter
 from torchvision import transforms as T
-import cv2
 import PIL
 import PIL.ImageOps
 import PIL.ImageEnhance
@@ -51,11 +50,11 @@ dataset_stats = {
                  'size' : 28},  
     'ImageNet': {'mean': (0.485, 0.456, 0.406),
                  'std' : (0.229, 0.224, 0.225),
-                 'size' : 224},      
+                 'size' : 224},   
     'TinyImageNet': {'mean': (0.4389, 0.4114, 0.3682),
                  'std' : (0.2402, 0.2350, 0.2268),
-                 'size' : 64},            
-    }
+                 'size' : 64},     
+                }
 
 
 # k transormations 

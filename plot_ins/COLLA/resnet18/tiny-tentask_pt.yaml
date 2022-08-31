@@ -1,0 +1,33 @@
+title:
+  TinyImageNet, 20 classes per task
+save_dir:
+  COLLAS/TinyImageNet
+save_name:
+  resnet18_tentask_pt
+results:
+  0:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18/mem-0/lr-1e-2/UB
+    name: Upper-Bound
+  1:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18_pt/mem-0/lr-1e-2/base
+    name: Naive
+  2:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18_pt/mem-0/lr-1e-2/lwf-mc
+    name: PredKD
+  3:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18_pt/mem-0/lr-1e-2/lwf-mc-featkd
+    name: PredKD + FeatKD
+  4:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18_pt/mem-0/lr-1e-2/ewc-mc
+    name: PredKD + EWC
+  5:
+    file: _outputs/colla_round-d/TinyImageNet/20-task/resnet18_pt/mem-0/lr-1e-2/mc-l2
+    name: PredKD + L2
+split_size:
+  20
+num_tasks:
+  10
+xs:
+  Number of Accumulated Classes
+ys:
+  Test Accuracy (%)

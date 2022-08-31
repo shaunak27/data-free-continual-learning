@@ -6,7 +6,6 @@ from torch.nn import functional as F
 from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
-import libmr
 import numpy as np
 from models.layers import CosineScaling
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval, calculate_cka
@@ -50,6 +49,8 @@ class NormalNN(nn.Module):
         self.KD = learner_config['KD']
         self.DTemp = learner_config['temp']
         self.mu = learner_config['mu']
+        self.beta = learner_config['beta']
+        self.eps = learner_config['eps']
 
         # supervised criterion
         self.criterion_fn = nn.CrossEntropyLoss(reduction='none')
@@ -88,7 +89,8 @@ class NormalNN(nn.Module):
         
         # try to load model
         need_train = True
-        if not self.overwrite:
+        # if not self.overwrite:
+        if True:
             try:
                 self.load_model(model_save_dir)
                 need_train = False
@@ -211,11 +213,6 @@ class NormalNN(nn.Module):
         logits = self.forward(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
-        # KD
-        if self.KD and target_scores is not None:
-            if kd_index is None: kd_index = np.arange(len(logits))
-            total_loss += self.mu * loss_fn_kd(logits[kd_index], target_scores[kd_index], dw_cls[kd_index], np.arange(self.last_valid_out_dim).tolist(), self.DTemp)
-
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
@@ -292,9 +289,9 @@ class NormalNN(nn.Module):
             tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, clusters = self.centers_torch.cpu().detach().numpy())
 
 
-        # # pca for in and out of distribution data
-        # title = 'PCA - Task ' + str(task+1)
-        # embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
+        # pca for in and out of distribution data
+        title = 'PCA - Task ' + str(task+1)
+        embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
         
         return embedding
 
@@ -344,34 +341,191 @@ class NormalNN(nn.Module):
 
     def cka_eval(self, dataloader):
 
-        # gather data
-        X_cur = []
-        X_past = []
-        for i, (input, target, _) in enumerate(dataloader):
-            if self.gpu:
-                with torch.no_grad():
-                    input = input.cuda()
-                    target = target.cuda()
+        try:
+            # deep CKA analysis
+            if True and self.task_count > 1:
+                vis_dir = self.debug_dir + 'cka_plots' + '/'
+                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
+                l_values = [0,1,2,3,4,5]
 
-            # current
-            penultimate_cur = self.previous_teacher.generate_scores_pen(input)
-            X_cur.extend(penultimate_cur.cpu().detach().tolist())
+                for t_anchor in range(self.task_count):
 
-            # past
-            penultimate_past = self.previous_previous_teacher.generate_scores_pen(input)
-            X_past.extend(penultimate_past.cpu().detach().tolist())
+                    # get file name
+                    filename = vis_dir + str(t_anchor+1) + '.png'
+                    cka_array = []
+                    acc_array = []
 
-        # convert to arrays
-        X_cur = np.asarray(X_cur)
-        X_past = np.asarray(X_past)
+                    # load model anchor
+                    m_a = self.create_model()
+                    m_a = self.load_model_other(self.debug_model_dir+str(t_anchor+1)+'/',m_a)
+                    teacher_a = Teacher(m_a)
 
-        # sanity check
-        # print(calculate_cka(X_cur, X_cur))
+                    # get task
+                    task_in = self.tasks[t_anchor]
+                    cka_array.append([1.0 for l in range(len(l_values))])
+                    acc_array.append(self.validation(dataloader, model=m_a, task_in = task_in, cka_flag=task_in[-1]))
 
-        # return cka score
-        return calculate_cka(X_cur, X_past)
+                    for t_drift in range(t_anchor+1,self.task_count):
+                        # load model drift
+                        m_b = self.create_model()
+                        m_b = self.load_model_other(self.debug_model_dir+str(t_drift+1)+'/',m_b)
+                        teacher_b = Teacher(m_b)
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True):
+                        # get cka similarity between two models
+                        layer_array = []
+                        for l in l_values:
+                            X_anchor = []
+                            X_drift = []
+                            for i, (input, target, _) in enumerate(dataloader):
+                                if self.gpu:
+                                    with torch.no_grad():
+                                        input = input.cuda()
+                                        target = target.cuda()
+
+                                mask = target >= task_in[0]
+                                mask_ind = mask.nonzero().view(-1) 
+                                input, target = input[mask_ind], target[mask_ind]
+
+                                mask = target < task_in[-1]
+                                mask_ind = mask.nonzero().view(-1) 
+                                input, target = input[mask_ind], target[mask_ind]
+
+                                if len(target) > 0:
+
+                                    # current
+                                    penultimate_anchor = teacher_a.generate_scores_layer(input,l)
+                                    X_anchor.extend(penultimate_anchor.cpu().detach().tolist())
+
+                                    # past
+                                    penultimate_drift = teacher_b.generate_scores_layer(input,l)
+                                    X_drift.extend(penultimate_drift.cpu().detach().tolist())
+
+                            # convert to arrays
+                            X_anchor = np.asarray(X_anchor)
+                            X_drift = np.asarray(X_drift)
+
+                            # return cka score
+                            cka = calculate_cka(X_anchor, X_drift)
+                            layer_array.append(cka)
+                        cka_array.append(layer_array)
+                        acc_array.append(self.validation(dataloader, model=m_b, task_in = task_in, cka_flag=self.tasks[t_drift][-1]))
+
+                    # save plot
+                    if len(cka_array) > 0:
+                        cmap = plt.get_cmap('jet')
+                        colors = cmap(np.linspace(0, 1.0, len(l_values)+1))
+                        plt.figure(figsize=(8,4))
+                        l_legend = ['Linear', 'Pen','L-2','L-3','L-4','L-5']
+                        x = np.arange(len(cka_array)) + 1 + t_anchor
+                        final_acc = np.asarray([cka_array[-1][l] for l in range(len(l_values))])
+                        for s in range(len(l_values)):
+                            i = np.argsort(final_acc)[-s-1]
+                            y = np.asarray([cka_array[j][i] for j in range(len(x))])
+                            plt.plot(x,y,lw=2, color = colors[i], linestyle = 'solid', label = l_legend[i])
+                            plt.scatter(x,y,s=50, color = colors[i])
+                        y = np.asarray(acc_array) / 100.0
+                        plt.plot(x,y,lw=2, color = colors[-1], linestyle = 'dashed', label = 'acc')
+                        plt.scatter(x,y,s=50, color = colors[-1])
+                        tick_x = np.arange(self.task_count) + 1
+                        tick_x_s = []
+                        for tick in tick_x:
+                            tick_x_s.append(str(int(tick)))
+                        plt.xticks(tick_x, tick_x_s,fontsize=14)
+                        plt.ylim(0,1.1)
+                        plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0],fontsize=14)
+                        plt.ylabel('CKA Score', fontweight='bold', fontsize=18)
+                        plt.xlabel('Tasks', fontweight='bold', fontsize=18)
+                        plt.title('CKA Forgetting Analysis for Task = '+str(t_anchor+1), fontsize=18)
+                        plt.legend(loc='lower left', prop={'weight': 'bold', 'size': 10})
+                        plt.grid()
+                        plt.tight_layout()
+                        plt.grid()
+                        plt.savefig(filename,format='png')  
+                        plt.close()
+
+                        
+
+
+
+            # gather data
+            X_cur = []
+            X_past = []
+            for i, (input, target, _) in enumerate(dataloader):
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                        target = target.cuda()
+
+                # current
+                penultimate_cur = self.previous_teacher.generate_scores_pen(input)
+                X_cur.extend(penultimate_cur.cpu().detach().tolist())
+
+                # past
+                penultimate_past = self.previous_previous_teacher.generate_scores_pen(input)
+                X_past.extend(penultimate_past.cpu().detach().tolist())
+
+            # convert to arrays
+            X_cur = np.asarray(X_cur)
+            X_past = np.asarray(X_past)
+
+            # return cka score
+            return calculate_cka(X_cur, X_past)
+        except:
+            return -1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1):
 
         if model is None:
             if task_metric == 'acc':
@@ -405,8 +559,12 @@ class NormalNN(nn.Module):
                 input, target = input[mask_ind], target[mask_ind]
                 
                 if len(target) > 1:
-                    output = model.forward(input)[:, task_in]
-                    acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
+                    if cka_flag > -1:
+                        output = model.forward(input)[:, :cka_flag]
+                        acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+                    else:
+                        output = model.forward(input)[:, task_in]
+                        acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
             
         model.train(orig_mode)
 
@@ -471,6 +629,12 @@ class NormalNN(nn.Module):
             self.model = self.model.cuda()
         self.model.eval()
 
+    def load_model_other(self, filename, model):
+        model.load_state_dict(torch.load(filename + 'class.pth'))
+        if self.gpu:
+            model = model.cuda()
+        return model.eval()
+
     # sets model optimizers
     def init_optimizer(self):
 
@@ -497,43 +661,15 @@ class NormalNN(nn.Module):
         elif self.schedule_type == 'decay':
             self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
-    # returns optimizer for passed model
-    def new_optimizer(self, model):
-
-        # parse optimizer args
-        optimizer_arg = {'params':model.parameters(),
-                         'lr':self.config['lr'],
-                         'weight_decay':self.config['weight_decay']}
-        if self.config['optimizer'] in ['SGD','RMSprop']:
-            optimizer_arg['momentum'] = self.config['momentum']
-        elif self.config['optimizer'] in ['Rprop']:
-            optimizer_arg.pop('weight_decay')
-        elif self.config['optimizer'] == 'amsgrad':
-            optimizer_arg['amsgrad'] = True
-            self.config['optimizer'] = 'Adam'
-        elif self.config['optimizer'] == 'Adam':
-            optimizer_arg['betas'] = (self.config['momentum'],0.999)
-
-        # create optimizers
-        optimizer = torch.optim.__dict__[self.config['optimizer']](**optimizer_arg)
-
-        # create schedules
-        if self.schedule_type == 'cosine':
-            scheduler = CosineSchedule(optimizer, K=self.schedule[-1])
-        elif self.schedule_type == 'decay':
-            scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.schedule, gamma=0.1)
-
-        return optimizer, scheduler
-
     def create_model(self):
         cfg = self.config
 
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
 
-        # Apply network surgery to the backbone
-        # Create the heads for tasks (It can be single task or multi-task)
-        n_feat = model.last.in_features
+        # # Apply network surgery to the backbone
+        # # Create the heads for tasks (It can be single task or multi-task)
+        # n_feat = model.last.in_features
 
         # # The output of the model will be a dict: {task_name1:output1, task_name2:output2 ...}
         # if isinstance(model.last, CosineScaling):
@@ -670,6 +806,21 @@ class Teacher(nn.Module):
         # get predicted logit-scores
         with torch.no_grad():
             y_hat = self.solver.forward(x=x, pen=True)
+
+        # set model back to its initial mode
+        self.train(mode=mode)
+
+        return y_hat
+
+    def generate_scores_layer(self, x, layer):
+
+        # set model to eval()-mode
+        mode = self.training
+        self.eval()
+
+        # get predicted logit-scores
+        with torch.no_grad():
+            y_hat = self.solver.forward(x=x, pen=True, l = layer)
 
         # set model back to its initial mode
         self.train(mode=mode)
