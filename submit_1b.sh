@@ -5,8 +5,8 @@
 #SBATCH -p long
 #SBATCH -t 150:00:00
 #SBATCH -J dfcl_1b
-#SBATCH -o      _log/dfcl_1b.log
-#SBATCH --error=_log/dfcl_1b.err
+#SBATCH -o      _outputs/_log/dfcl_1b.log
+#SBATCH --error=_outputs/_log/dfcl_1b.err
 
 hostname
 echo $CUDA_VISIBLE_DEVICES

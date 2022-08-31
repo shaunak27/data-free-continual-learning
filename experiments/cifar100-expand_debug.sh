@@ -23,7 +23,7 @@ DEBUG=0
 MAXTASK=-1
 
 # hard coded inputs
-REPEAT=1
+REPEAT=3
 SCHEDULE="50 70"
 vis_flag=1
 BS=256

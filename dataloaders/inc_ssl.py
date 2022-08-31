@@ -200,6 +200,7 @@ class iDataset(data.Dataset):
             tuple: (image, target) where target is index of the target class
         """
         img, target = self.data[index], self.targets[index]
+        print(img)
 
         # doing this so that it is consistent with all other datasets
         # to return a PIL Image
@@ -736,6 +737,88 @@ class iCIFAR100(iCIFAR10):
     }
     im_size=32
     nch=3
+
+
+class iTinyIMNET(iDataset):
+    
+    im_size=64
+    nch=3
+
+    def load(self):
+        self.dw = False
+        self.data, self.targets = [], []
+
+        from os import path
+        root = self.root
+        FileNameEnd = 'JPEG'
+        train_dir = path.join(root, 'tiny-imagenet-200/train')
+        self.class_names = sorted(os.listdir(train_dir))
+        self.names2index = {v: k for k, v in enumerate(self.class_names)}
+        self.data = []
+        self.targets = []
+
+        if self.train:
+            for label in self.class_names:
+                d = path.join(root, 'tiny-imagenet-200/train', label)
+                for directory, _, names in os.walk(d):
+                    for name in names:
+                        filename = path.join(directory, name)
+                        if filename.endswith(FileNameEnd):
+                            self.data.append(filename)
+                            self.targets.append(self.names2index[label])
+        else:
+            val_dir = path.join(root, 'tiny-imagenet-200/val')
+            with open(path.join(val_dir, 'val_annotations.txt'), 'r') as f:
+                infos = f.read().strip().split('\n')
+                infos = [info.strip().split('\t')[:2] for info in infos]
+                self.data = [path.join(val_dir, 'images', info[0])for info in infos]
+                self.targets = [self.names2index[info[1]] for info in infos]
+
+    def __getitem__(self, index, simple = False):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is index of the target class
+        """
+        img_path, target = self.data[index], self.targets[index]
+        img = jpg_image_to_array(img_path)
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img)
+
+        if self.transform is not None:
+            if simple:
+                img = self.simple_transform(img)
+            else:
+                img = self.transform(img)
+
+        return img, self.class_mapping[target], self.t
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

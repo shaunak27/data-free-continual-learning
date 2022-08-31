@@ -51,7 +51,7 @@ for LR in 1e-2
 do
     for MEMORY in 0
     do
-        for MODELNAME in resnet18_pt resnet34_pt WRN50_2_pt
+        for MODELNAME in resnet18_pt
         do
             OUTDIR_MODEL=${OUTDIR_START}/${MODELNAME}/mem-${MEMORY}/lr-${LR}
             if [ $MODE -eq 1 ] 

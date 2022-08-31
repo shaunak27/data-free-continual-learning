@@ -19,7 +19,7 @@ DEBUG=0
 MAXTASK=-1
 
 # hard coded inputs
-REPEAT=1
+REPEAT=3
 SCHEDULE="100 150 200 250"
 vis_flag=1
 BS=256
@@ -47,7 +47,7 @@ for LR in 1e-3
 do
     for MEMORY in 0
     do
-        for MODELNAME in WRN50_2 resnet18 resnet34
+        for MODELNAME in resnet18
         do
             OUTDIR_MODEL=${OUTDIR}/${MODELNAME}/mem-${MEMORY}/lr-${LR}
             # base
