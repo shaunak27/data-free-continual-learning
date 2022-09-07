@@ -1,0 +1,23 @@
+dataset: CIFAR100
+first_split_size: 10
+other_split_size: 10
+schedule:
+- 100
+- 150
+- 200
+- 250
+schedule_type: decay
+batch_size: 256
+optimizer: SGD
+lr: 0.001
+momentum: 0.9
+weight_decay: 0.0002
+model_type: resnet
+model_name: resnet18_pt
+vis_flag: True
+max_task: -1
+dataroot: data
+workers: 8
+validation: False
+train_aug: True
+rand_split: True

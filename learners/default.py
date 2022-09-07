@@ -7,7 +7,6 @@ from types import MethodType
 import models
 from utils.metric import accuracy, AverageMeter, Timer
 import numpy as np
-from models.layers import CosineScaling
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval, calculate_cka
 from torch.optim import Optimizer
 import contextlib
@@ -46,7 +45,6 @@ class NormalNN(nn.Module):
             self.dw = False
 
         # distillation
-        self.KD = learner_config['KD']
         self.DTemp = learner_config['temp']
         self.mu = learner_config['mu']
         self.beta = learner_config['beta']
@@ -62,8 +60,6 @@ class NormalNN(nn.Module):
         else:
             self.gpu = False
         
-        
-        
         # highest class index from past task
         self.last_valid_out_dim = 0 
 
@@ -76,10 +72,6 @@ class NormalNN(nn.Module):
 
         # initialize optimizer
         self.init_optimizer()
-
-        # for inheritance
-        self.centers_torch = None
-        self.variance_torch = None
 
     ##########################################
     #           MODEL TRAINING               #
@@ -129,11 +121,11 @@ class NormalNN(nn.Module):
 
                     # send data to gpu
                     if self.gpu:
-                        x = [x[k].cuda() for k in range(len(x))]
+                        x = x.cuda()
                         y = y.cuda()
                     
                     # model update
-                    loss, output= self.update_model(x[0], y)
+                    loss, output= self.update_model(x, y)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
@@ -283,11 +275,7 @@ class NormalNN(nn.Module):
 
         # tsne for in and out of distribution data
         title = 'TSNE - Task ' + str(task+1)
-        if self.centers_torch is None:
-            tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim)
-        else:
-            tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, clusters = self.centers_torch.cpu().detach().numpy())
-
+        tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim)
 
         # pca for in and out of distribution data
         title = 'PCA - Task ' + str(task+1)
@@ -315,16 +303,10 @@ class NormalNN(nn.Module):
             # gather data
             X = []
             for i, (input, target, _) in enumerate(datal):
-                try:
-                    if self.gpu:
-                        with torch.no_grad():
-                            input = input.cuda()
-                    X.extend(input.cpu().detach().tolist())
-                except:
-                    if self.gpu:
-                        with torch.no_grad():
-                            input = input[0].cuda()
-                    X.extend(input.cpu().detach().tolist())
+                if self.gpu:
+                    with torch.no_grad():
+                        input = input.cuda()
+                X.extend(input.cpu().detach().tolist())
 
             x = np.asarray(X) 
             np.random.shuffle(x)                               
@@ -443,10 +425,6 @@ class NormalNN(nn.Module):
                         plt.savefig(filename,format='png')  
                         plt.close()
 
-                        
-
-
-
             # gather data
             X_cur = []
             X_past = []
@@ -472,57 +450,6 @@ class NormalNN(nn.Module):
             return calculate_cka(X_cur, X_past)
         except:
             return -1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1):
@@ -666,16 +593,6 @@ class NormalNN(nn.Module):
 
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
-
-        # # Apply network surgery to the backbone
-        # # Create the heads for tasks (It can be single task or multi-task)
-        # n_feat = model.last.in_features
-
-        # # The output of the model will be a dict: {task_name1:output1, task_name2:output2 ...}
-        # if isinstance(model.last, CosineScaling):
-        #     model.last =  CosineScaling(n_feat, self.out_dim)
-        # else:
-        #     model.last = nn.Linear(n_feat, self.out_dim)
 
         return model
 
