@@ -32,7 +32,11 @@ dataset_stats = {
                  'size' : 224},   
     'TinyImageNet': {'mean': (0.4389, 0.4114, 0.3682),
                  'std' : (0.2402, 0.2350, 0.2268),
-                 'size' : 64},     
+                 'size' : 64},   
+    'ImageNet_R': {
+                 'size' : 224}, 
+    'DomainNet': {
+                 'size' : 224},  
                 }
 
 # transformations
@@ -42,56 +46,35 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
     crop_size = dataset_stats[dataset]['size']
 
     # get mean and std
-    dset_mean = dataset_stats[dataset]['mean']
-    dset_std = dataset_stats[dataset]['std']
+    dset_mean = (0.0,0.0,0.0) # dataset_stats[dataset]['mean']
+    dset_std = (1.0,1.0,1.0) # dataset_stats[dataset]['std']
 
     if dataset == 'ImageNet32' or dataset == 'ImageNet84':
         transform_list.extend([
             transforms.Resize((crop_size,crop_size))
         ])
 
-    if phase == 'train' and aug:
-        if dataset == 'ImageNet':
-            transform_list.extend([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
-        elif resize_imnet:
-            transform_list.extend([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
-        else:
-            transform_list.extend([
-                transforms.ColorJitter(brightness=63/255, contrast=0.8),
-                transforms.RandomHorizontalFlip(p=0.5),
-                transforms.RandomCrop(crop_size, padding=4),
-                transforms.ToTensor(),
-                transforms.Normalize(dset_mean, dset_std),
-                                ])
+    if phase == 'train':
+        transform_list.extend([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(dset_mean, dset_std),
+                            ])
     else:
-        if dataset == 'ImageNet':
+        if dataset.startswith('ImageNet') or dataset == 'DomainNet':
             transform_list.extend([
                 transforms.Resize(256),
                 transforms.CenterCrop(224),
                 transforms.ToTensor(),
                 transforms.Normalize(dset_mean, dset_std),
                                 ])
-        elif resize_imnet:
+        else:
             transform_list.extend([
                 transforms.Resize(224),
                 transforms.ToTensor(),
                 transforms.Normalize(dset_mean, dset_std),
                                 ])
-        else:
-            transform_list.extend([
-                    transforms.ToTensor(),
-                    transforms.Normalize(dset_mean, dset_std),
-                                    ])
 
 
     return transforms.Compose(transform_list)

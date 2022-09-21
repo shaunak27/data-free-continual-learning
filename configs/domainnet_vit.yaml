@@ -1,8 +1,8 @@
-dataset: CIFAR100
-first_split_size: 10
-other_split_size: 10
+dataset: DomainNet
+first_split_size: 69
+other_split_size: 69
 schedule:
-- 10
+- 20
 schedule_type: decay
 batch_size: 64
 optimizer: Adam

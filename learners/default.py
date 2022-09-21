@@ -510,36 +510,10 @@ class NormalNN(nn.Module):
     # data weighting
     def data_weighting(self, dataset, num_seen=None):
 
-        if dataset.dw:
-            # count number of examples in dataset per class
-            self.log('*************************\n\n\n')
-            if num_seen is None:
-                labels = [int(dataset[i][1]) for i in range(len(dataset))]
-                labels = np.asarray(labels, dtype=np.int64)
-                num_seen = np.asarray([len(labels[labels==k]) for k in range(self.valid_out_dim)], dtype=np.float32)
-
-            self.log('num seen:' + str(num_seen))
-            
-            # in case a zero exists in PL...
-            num_seen += 1
-
-            # all seen
-            seen = np.ones(self.valid_out_dim + 1, dtype=np.float32)
-            seen = torch.tensor(seen)
-            seen_dw = np.ones(self.valid_out_dim + 1, dtype=np.float32)
-            seen_dw[:self.valid_out_dim] = num_seen.sum() / (num_seen * len(num_seen))
-            seen_dw = torch.tensor(seen_dw)
-
-            self.dw_k = seen_dw
-            # cuda
-            if self.cuda:
-                self.dw_k = self.dw_k.cuda()
-
-        else:
-            self.dw_k = torch.tensor(np.ones(self.valid_out_dim + 1, dtype=np.float32))
-            # cuda
-            if self.cuda:
-                self.dw_k = self.dw_k.cuda()
+        self.dw_k = torch.tensor(np.ones(self.valid_out_dim + 1, dtype=np.float32))
+        # cuda
+        if self.cuda:
+            self.dw_k = self.dw_k.cuda()
 
     def save_model(self, filename):
         model_state = self.model.state_dict()
@@ -561,6 +535,7 @@ class NormalNN(nn.Module):
         if self.gpu:
             model = model.cuda()
         return model.eval()
+
 
     # sets model optimizers
     def init_optimizer(self):

@@ -216,9 +216,6 @@ class LWF_MC(LWF):
         
 
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)
@@ -245,9 +242,6 @@ class LWF_MC_FEATKD(LWF):
         
 
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)
@@ -280,9 +274,6 @@ class EWC_MC(LWF):
         self.l2_loss = torch.nn.MSELoss(reduction='none')
         
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)

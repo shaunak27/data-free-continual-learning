@@ -28,10 +28,6 @@ class iDataset(data.Dataset):
         self.t = -1
         self.tasks = tasks
         self.download_flag = download_flag
-        self.lab = lab
-        self.ic_dict = {}
-        self.ic = False
-        self.dw = True
 
         # load dataset
         self.load()
@@ -115,10 +111,8 @@ class iDataset(data.Dataset):
         if self.transform is not None:
             img = self.transform(img)
 
-        if self.lab:
-            return img, self.class_mapping[target], self.t
-        else:
-            return img, -1, self.t
+        return img, self.class_mapping[target], self.t
+
 
     def load_dataset(self, t, train=True):
         
@@ -139,12 +133,8 @@ class iDataset(data.Dataset):
             else:
                 len_data = len(self.data)
                 sample_ind = np.random.choice(len_core, len_data)
-                if self.ic:
-                    self.data = np.concatenate([self.data, self.coreset[0]], axis=0)
-                    self.targets = np.concatenate([self.targets, self.coreset[1]], axis=0)
-                else:
-                    self.data = np.concatenate([self.data, self.coreset[0][sample_ind]], axis=0)
-                    self.targets = np.concatenate([self.targets, self.coreset[1][sample_ind]], axis=0)
+                self.data = np.concatenate([self.data, self.coreset[0][sample_ind]], axis=0)
+                self.targets = np.concatenate([self.targets, self.coreset[1][sample_ind]], axis=0)
 
     def update_coreset(self, coreset_size, seen):
         num_data_per = coreset_size // len(seen)
@@ -313,41 +303,34 @@ class iCIFAR100(iCIFAR10):
     im_size=32
     nch=3
 
-
-class iTinyIMNET(iDataset):
+class iIMAGENET_R(iDataset):
     
-    im_size=64
+    base_folder = 'imagenet-r'
+    im_size=224
     nch=3
-
     def load(self):
-        self.dw = False
         self.data, self.targets = [], []
+        images_path = os.path.join(self.root, self.base_folder)
+        data_dict = get_data(images_path)
+        y = 0
+        for key in data_dict.keys():
+            num_y = len(data_dict[key])
+            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
+            self.targets.extend([y for i in np.arange(0,num_y)])
+            y += 1
 
-        from os import path
-        root = self.root
-        FileNameEnd = 'JPEG'
-        train_dir = path.join(root, 'tiny-imagenet-200/train')
-        self.class_names = sorted(os.listdir(train_dir))
-        self.names2index = {v: k for k, v in enumerate(self.class_names)}
-        self.data = []
-        self.targets = []
-
-        if self.train:
-            for label in self.class_names:
-                d = path.join(root, 'tiny-imagenet-200/train', label)
-                for directory, _, names in os.walk(d):
-                    for name in names:
-                        filename = path.join(directory, name)
-                        if filename.endswith(FileNameEnd):
-                            self.data.append(filename)
-                            self.targets.append(self.names2index[label])
+        n_data = len(self.targets)
+        index_sample = [i for i in range(n_data)]
+        import random
+        random.seed(0)
+        random.shuffle(index_sample)
+        if self.train or self.validation:
+            index_sample = index_sample[:int(0.8*n_data)]
         else:
-            val_dir = path.join(root, 'tiny-imagenet-200/val')
-            with open(path.join(val_dir, 'val_annotations.txt'), 'r') as f:
-                infos = f.read().strip().split('\n')
-                infos = [info.strip().split('\t')[:2] for info in infos]
-                self.data = [path.join(val_dir, 'images', info[0])for info in infos]
-                self.targets = [self.names2index[info[1]] for info in infos]
+            index_sample = index_sample[int(0.8*n_data):]
+
+        self.data = [self.data[i] for i in index_sample]
+        self.targets = [self.targets[i] for i in index_sample]
 
     def __getitem__(self, index, simple = False):
         """
@@ -368,52 +351,6 @@ class iTinyIMNET(iDataset):
 
         return img, self.class_mapping[target], self.t
 
-
-class iIMAGENET(iDataset):
-    
-    base_folder = 'ilsvrc'
-    im_size=224
-    nch=3
-    def load(self):
-        self.dw = False
-        self.data, self.targets = [], []
-        images_path = os.path.join(self.root, self.base_folder)
-        if self.train or self.validation:
-            images_path = os.path.join(images_path, 'train')
-            data_dict = get_data(images_path)
-        else:
-            images_path = os.path.join(images_path, 'val')
-            data_dict = get_data(images_path)
-        y = 0
-        for key in data_dict.keys():
-            num_y = len(data_dict[key])
-            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
-            self.targets.extend([y for i in np.arange(0,num_y)])
-            y += 1
-
-
-    def __getitem__(self, index, simple = False):
-        """
-        Args:
-            index (int): Index
-        Returns:
-            tuple: (image, target) where target is index of the target class
-        """
-        img_path, target = self.data[index], self.targets[index]
-        img = jpg_image_to_array(img_path)
-
-        # doing this so that it is consistent with all other datasets
-        # to return a PIL Image
-        img = Image.fromarray(img)
-
-        if self.transform is not None:
-            img = self.transform(img)
-
-        if self.lab:
-            return img, self.class_mapping[target], self.t
-        else:
-            return img, -1, self.t
-
     
     def parse_archives(self) -> None:
         if not check_integrity(os.path.join(self.root, META_FILE)):
@@ -432,10 +369,51 @@ class iIMAGENET(iDataset):
     def extra_repr(self) -> str:
         return "Split: {split}".format(**self.__dict__)
 
+
+class iDOMAIN_NET(iIMAGENET_R):
+    base_folder = 'DomainNet'
+    im_size=224
+    nch=3
+    def load(self):
+        self.data, self.targets = [], []
+        images_path = os.path.join(self.root, self.base_folder)
+        data_dict = get_data_deep(images_path)
+        y = 0
+        for key in data_dict.keys():
+            num_y = len(data_dict[key])
+            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
+            self.targets.extend([y for i in np.arange(0,num_y)])
+            y += 1
+        n_data = len(self.targets)
+        index_sample = [i for i in range(n_data)]
+        import random
+        random.seed(0)
+        random.shuffle(index_sample)
+        if self.train or self.validation:
+            index_sample = index_sample[:int(0.08*n_data)]
+        else:
+            index_sample = index_sample[int(0.08*n_data):int(0.1*n_data)]
+
+        self.data = [self.data[i] for i in index_sample]
+        self.targets = [self.targets[i] for i in index_sample]
+
 def get_data(root_images):
 
     import glob
-    files = glob.glob(root_images+'/*/*.JPEG')
+    files = glob.glob(root_images+'/*/*.jpg')
+    data = {}
+    for path in files:
+        y = os.path.basename(os.path.dirname(path))
+        if y in data:
+            data[y].append(path)
+        else:
+            data[y] = [path]
+    return data
+
+def get_data_deep(root_images):
+
+    import glob
+    files = glob.glob(root_images+'/*/*/*.jpg')
     data = {}
     for path in files:
         y = os.path.basename(os.path.dirname(path))

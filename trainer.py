@@ -54,12 +54,27 @@ class Trainer:
             num_classes = 1000
             self.dataset_size = [224,224,3]
             self.top_k = 5
+        elif args.dataset == 'ImageNet_R':
+            Dataset = dataloaders.iIMAGENET_R
+            num_classes = 200
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
+        elif args.dataset == 'DomainNet':
+            Dataset = dataloaders.iDOMAIN_NET
+            num_classes = 345
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
         elif args.dataset == 'TinyImageNet':
             Dataset = dataloaders.iTinyIMNET
             num_classes = 200
             self.dataset_size = [64,64,3]
         else:
             raise ValueError('Dataset not implemented!')
+
+        # upper bound flag
+        if args.upper_bound_flag:
+            args.other_split_size = num_classes
+            args.first_split_size = num_classes
 
         # load tasks
         class_order = np.arange(num_classes).tolist()
@@ -158,6 +173,7 @@ class Trainer:
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
+                        'prompt_param':[self.num_tasks,args.prompt_param]
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
@@ -247,6 +263,12 @@ class Trainer:
                 self.train_dataset.load_dataset(i, train=True)
                 self.add_dim = len(task)
 
+            # set task id for model (needed for prompting)
+            try:
+                self.learner.model.module.task_id = i
+            except:
+                self.learner.model.task_id = i
+
             # add valid class to classifier
             self.learner.add_valid_output_dim(self.add_dim)
 
@@ -261,6 +283,15 @@ class Trainer:
             #     self.train_vis(vis_dir, 'pre', i, pre=True)
             self.learner.debug_dir = vis_dir
             self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
+
+            # frequency table process
+            if i > 0:
+                try:
+                    if self.learner.model.module.prompt is not None:
+                        self.learner.model.module.prompt.process_frequency()
+                except:
+                    if self.learner.model.prompt is not None:
+                        self.learner.model.prompt.process_frequency()
 
             # learn
             self.test_dataset.load_dataset(i, train=False)

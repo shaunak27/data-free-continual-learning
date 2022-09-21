@@ -2,19 +2,16 @@ dataset: CIFAR100
 first_split_size: 10
 other_split_size: 10
 schedule:
-- 100
-- 150
-- 200
-- 250
+- 10
 schedule_type: decay
-batch_size: 256
-optimizer: SGD
+batch_size: 64
+optimizer: Adam
 lr: 0.001
 momentum: 0.9
-weight_decay: 0.0002
-model_type: resnet
-model_name: resnet18_pt
-vis_flag: True
+weight_decay: 0
+model_type: zoo
+model_name: vit_pt_imnet
+vis_flag: False
 max_task: -1
 dataroot: data
 workers: 8

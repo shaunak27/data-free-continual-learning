@@ -1,1 +1,2 @@
-from . import resnet
+from . import vit
+from . import zoo

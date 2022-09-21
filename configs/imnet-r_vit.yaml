@@ -1,8 +1,8 @@
-dataset: CIFAR100
-first_split_size: 10
-other_split_size: 10
+dataset: ImageNet_R
+first_split_size: 20
+other_split_size: 20
 schedule:
-- 10
+- 50
 schedule_type: decay
 batch_size: 64
 optimizer: Adam
