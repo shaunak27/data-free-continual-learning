@@ -237,15 +237,15 @@ class NormalNN(nn.Module):
                 with torch.no_grad():
                     input = input.cuda()
                     target = target.cuda()
-            # output = self.predict(input)
+            output = self.predict(input)
             penultimate = self.model.forward(x=input, pen=True)
             X.extend(penultimate.cpu().detach().tolist())
-            # y_pred.extend(np.argmax(output.cpu().detach().numpy(), axis = 1).tolist())
+            y_pred.extend(np.argmax(output.cpu().detach().numpy(), axis = 1).tolist())
             y_true.extend(target.cpu().detach())
-            # for k in range(self.valid_out_dim):
-            #     y_act[k].extend(output[:,k].cpu().detach().numpy().tolist())
-            #     y_ind = np.where(target.cpu().detach().numpy() == k)[0]
-            #     logit_out[k].extend(output[y_ind,:].cpu().detach().numpy().tolist())
+            for k in range(self.valid_out_dim):
+                y_act[k].extend(output[:,k].cpu().detach().numpy().tolist())
+                y_ind = np.where(target.cpu().detach().numpy() == k)[0]
+                logit_out[k].extend(output[y_ind,:].cpu().detach().numpy().tolist())
         self.train(orig_mode)
 
         # # debug - print activation stats
@@ -256,37 +256,30 @@ class NormalNN(nn.Module):
         #     print(np.std(logit_out[k], axis=0))
         #     print(np.cov(logit_out[k].transpose()))
 
-        # # save activations
-        # y_act = np.asarray(y_act)
-        # cm_array = np.zeros((self.valid_out_dim,2))
-        # cm_array[:,0] = np.mean(y_act, axis=1)
-        # cm_array[:,1] = np.std(y_act, axis=1)
-        # np.savetxt(savename+'mean_std_act_per_task.csv', cm_array, delimiter=",", fmt='%.0f')
+        # save activations
+        y_act = np.asarray(y_act)
+        cm_array = np.zeros((self.valid_out_dim,2))
+        cm_array[:,0] = np.mean(y_act, axis=1)
+        cm_array[:,1] = np.std(y_act, axis=1)
+        np.savetxt(savename+'mean_std_act_per_task.csv', cm_array, delimiter=",", fmt='%.0f')
 
         # convert to arrays
         X = np.asarray(X)
         y_true = np.asarray(y_true)
-        # y_pred = np.asarray(y_pred)
+        y_pred = np.asarray(y_pred)
         
-        # # confusion matrix
-        # title = 'CM - Task ' + str(task+1)
-        # ood_cuttoff = self.valid_out_dim
-        # confusion_matrix_vis(y_pred[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title)
+        # confusion matrix
+        title = 'CM - Task ' + str(task+1)
+        ood_cuttoff = self.valid_out_dim
+        confusion_matrix_vis(y_pred[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title)
 
         # tsne for in and out of distribution data
-        ood_cuttoff = 10
-        # ood_cuttoff = 200
-        # y_true = y_true/20
-        # y_true = y_true.astype(dtype='int')
-        # ood_cuttoff = 345
-        # y_true = y_true/69
-        # y_true = y_true.astype(dtype='int')
         title = 'TSNE - Task ' + str(task+1)
-        tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, 5)
+        tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim)
 
-        # # pca for in and out of distribution data
-        # title = 'PCA - Task ' + str(task+1)
-        # embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, 10)
+        # pca for in and out of distribution data
+        title = 'PCA - Task ' + str(task+1)
+        embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
         
         return embedding
 

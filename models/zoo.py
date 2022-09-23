@@ -7,6 +7,8 @@ from torch.autograd import Variable
 from .vit import VisionTransformer
 import numpy as np
 
+SINGLE_KEY_DUAL_PROMPT = False
+
 def tensor_prompt(a, b, c=None):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
@@ -31,6 +33,7 @@ def two_layer_adapter(a):
 class DualAdapt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param):
         super().__init__()
+        self.task_count_f = 0
         self.emb_d = emb_d
         self.key_d = 768
         self._init_smart(emb_d, n_tasks, prompt_param)
@@ -51,7 +54,8 @@ class DualAdapt(nn.Module):
             p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
             k = tensor_prompt(self.e_pool_size, emb_d)
             setattr(self, f'e_p_{e}',p)
-            setattr(self, f'e_k_{e}',k)
+            if not SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k_{e}',k)
+        if SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k',k)
 
     def _init_smart(self, emb_d, n_tasks, prompt_param):
         
@@ -68,6 +72,7 @@ class DualAdapt(nn.Module):
         self.e_pool_size = prompt_param[0]
 
     def process_frequency(self):
+        self.task_count_f += 1
         self.frequency_past = {}
         for key, f_table in self.frequency_current.items():
             f_past = []
@@ -75,14 +80,28 @@ class DualAdapt(nn.Module):
                 f_past.append(float(f_table[p])/sum(f_table))
             self.frequency_past[key] = f_past
             self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print(self.task_count_f)
+        print(self.frequency_past)
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
 
         # e prompts
         e_valid = False
         if l in self.e_layers:
-            e_valid = True
-            K = getattr(self,f'e_k_{l}') # 0 based indexing here
+            if SINGLE_KEY_DUAL_PROMPT:
+                K = getattr(self,f'e_k') # 0 based indexing here
+            else:
+                K = getattr(self,f'e_k_{l}') # 0 based indexing here
             B, C = x_querry.shape
 
             # cosine similarity to match keys/querries
@@ -93,11 +112,12 @@ class DualAdapt(nn.Module):
             ix = top_k.indices
 
             if train:
-                loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
                 p = getattr(self,f'e_p_{l}') # 0 based indexing here
                 if self.task_id_bootstrap:
+                    loss = 1.0 - cos_sim[:,task_id].mean()  # the cosine similarity is always le 1
                     P_ = p[task_id].expand(len(x_querry),-1,-1)
                 else:
+                    loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
                     k_idx = top_k.indices
                     P_ = p[k_idx][:,0]
 
@@ -135,6 +155,7 @@ class DualAdapt(nn.Module):
 class DualPrompt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param):
         super().__init__()
+        self.task_count_f = 0
         self.emb_d = emb_d
         self.key_d = 768
         self._init_smart(emb_d, n_tasks, prompt_param)
@@ -155,7 +176,8 @@ class DualPrompt(nn.Module):
             p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
             k = tensor_prompt(self.e_pool_size, emb_d)
             setattr(self, f'e_p_{e}',p)
-            setattr(self, f'e_k_{e}',k)
+            if not SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k_{e}',k)
+        if SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k',k)
 
     def _init_smart(self, emb_d, n_tasks, prompt_param):
         
@@ -172,6 +194,7 @@ class DualPrompt(nn.Module):
         self.e_pool_size = prompt_param[0]
 
     def process_frequency(self):
+        self.task_count_f += 1
         self.frequency_past = {}
         for key, f_table in self.frequency_current.items():
             f_past = []
@@ -179,6 +202,19 @@ class DualPrompt(nn.Module):
                 f_past.append(float(f_table[p])/sum(f_table))
             self.frequency_past[key] = f_past
             self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print(self.task_count_f)
+        print(self.frequency_past)
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+        print('*********************************')
+
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
 
@@ -186,7 +222,10 @@ class DualPrompt(nn.Module):
         e_valid = False
         if l in self.e_layers:
             e_valid = True
-            K = getattr(self,f'e_k_{l}') # 0 based indexing here
+            if SINGLE_KEY_DUAL_PROMPT:
+                K = getattr(self,f'e_k') # 0 based indexing here
+            else:
+                K = getattr(self,f'e_k_{l}') # 0 based indexing here
             B, C = x_querry.shape
 
             # cosine similarity to match keys/querries
@@ -197,11 +236,12 @@ class DualPrompt(nn.Module):
             ix = top_k.indices
 
             if train:
-                loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
                 p = getattr(self,f'e_p_{l}') # 0 based indexing here
                 if self.task_id_bootstrap:
+                    loss = 1.0 - cos_sim[:,task_id].mean()  # the cosine similarity is always le 1
                     P_ = p[task_id].expand(len(x_querry),-1,-1)
                 else:
+                    loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
                     k_idx = top_k.indices
                     P_ = p[k_idx][:,0]
 
@@ -319,11 +359,10 @@ class ResNetZoo(nn.Module):
                 q, _ = self.feat(x)
                 q = q[:,0,:]
             out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=self.train_flag, task_id=self.task_id)
-            # out = out[:,0,:]
+            out = out[:,0,:]
         else:
             out, _ = self.feat(x)
-            # out = out.mean(dim=1)
-            # out = out[:,0,:]
+            out = out[:,0,:]
         out = out.view(out.size(0), -1)
         if pen:
             return out

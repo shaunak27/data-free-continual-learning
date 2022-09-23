@@ -61,7 +61,7 @@ class Trainer:
             self.top_k = 1
         elif args.dataset == 'DomainNet':
             Dataset = dataloaders.iDOMAIN_NET
-            num_classes = 5
+            num_classes = 345
             self.dataset_size = [224,224,3]
             self.top_k = 1
         elif args.dataset == 'TinyImageNet':
@@ -75,8 +75,6 @@ class Trainer:
         if args.upper_bound_flag:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
-        args.other_split_size = 1
-        args.first_split_size = 1
 
         # load tasks
         class_order = np.arange(num_classes).tolist()
@@ -186,6 +184,7 @@ class Trainer:
         self.test_dataset.load_dataset(self.num_tasks-1, train=False)
         test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
 
+        if self.grayscale_vis: plt.rc('image', cmap='gray')
         self.learner.data_visualization(test_loader, vis_dir, name, t_index)
 
         # val data
@@ -237,6 +236,13 @@ class Trainer:
             # save current task index
             self.current_t_index = i
 
+            # save name for learner specific eval
+            if self.vis_flag:
+                vis_dir = self.log_dir + '/visualizations/task-'+self.task_names[i]+'/'
+                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
+            else:
+                vis_dir = None
+
             # set seeds
             random.seed(self.seed*100 + i)
             np.random.seed(self.seed*100 + i)
@@ -272,12 +278,9 @@ class Trainer:
             # load dataloader
             train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
 
-            # T-sne plots
-            if True:
-                vis_dir = self.log_dir + '/visualizations/task-'+self.task_names[i]+'/'
-                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-                self.train_vis(vis_dir, 'pre', i, pre=True)
-                print(tsne_is_finished)
+            # # T-sne plots
+            # if self.vis_flag:
+            #     self.train_vis(vis_dir, 'pre', i, pre=True)
             self.learner.debug_dir = vis_dir
             self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
 
@@ -299,6 +302,10 @@ class Trainer:
 
             # save model
             self.learner.save_model(model_save_dir)
+
+            # T-sne plots
+            if self.vis_flag:
+                self.train_vis(vis_dir, 'post', i)
             
             # evaluate acc
             acc_table = []
