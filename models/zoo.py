@@ -39,7 +39,7 @@ class DualAdapt(nn.Module):
         self.frequency_past = None
         self.frequency_current = {}
         for l in self.e_layers:
-            self.frequency_current[l] = [1 for i in range(self.e_pool_size)]
+            self.frequency_current[l] = [0.001 for i in range(self.e_pool_size)]
 
         # g prompt init
         for g in self.g_layers:
@@ -74,6 +74,7 @@ class DualAdapt(nn.Module):
             for p in range(len(f_table)):               
                 f_past.append(float(f_table[p])/sum(f_table))
             self.frequency_past[key] = f_past
+            self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
 
@@ -142,7 +143,7 @@ class DualPrompt(nn.Module):
         self.frequency_past = None
         self.frequency_current = {}
         for l in self.e_layers:
-            self.frequency_current[l] = [1 for i in range(self.e_pool_size)]
+            self.frequency_current[l] = [0.001 for i in range(self.e_pool_size)]
 
         # g prompt init
         for g in self.g_layers:
@@ -177,6 +178,7 @@ class DualPrompt(nn.Module):
             for p in range(len(f_table)):               
                 f_past.append(float(f_table[p])/sum(f_table))
             self.frequency_past[key] = f_past
+            self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
 
@@ -255,12 +257,17 @@ class L2P(DualPrompt):
 
         # prompt locations
         self.g_layers = []
-        self.e_layers = [0]
+        if prompt_param[2] > 0:
+            self.e_layers = [0,1,3,4,5]
+        else:
+            self.e_layers = [0]
 
         # prompt pool size
         self.g_p_length = -1
         self.e_p_length = prompt_param[1]
         self.e_pool_size = prompt_param[0]
+
+
 
 
 
@@ -312,10 +319,11 @@ class ResNetZoo(nn.Module):
                 q, _ = self.feat(x)
                 q = q[:,0,:]
             out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=self.train_flag, task_id=self.task_id)
-            out = out[:,0,:]
+            # out = out[:,0,:]
         else:
             out, _ = self.feat(x)
-            out = out[:,0,:]
+            # out = out.mean(dim=1)
+            # out = out[:,0,:]
         out = out.view(out.size(0), -1)
         if pen:
             return out

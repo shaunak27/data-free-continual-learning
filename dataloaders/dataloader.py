@@ -390,9 +390,10 @@ class iDOMAIN_NET(iIMAGENET_R):
         random.seed(0)
         random.shuffle(index_sample)
         if self.train or self.validation:
-            index_sample = index_sample[:int(0.08*n_data)]
+            index_sample = index_sample[:int(0.16*n_data)]
         else:
-            index_sample = index_sample[int(0.08*n_data):int(0.1*n_data)]
+            # index_sample = index_sample[int(0.16*n_data):int(0.2*n_data)]
+            index_sample = index_sample[int(0.16*n_data):int(0.17*n_data)]
 
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]
@@ -410,13 +411,26 @@ def get_data(root_images):
             data[y] = [path]
     return data
 
+# def get_data_deep(root_images):
+
+#     import glob
+#     files = glob.glob(root_images+'/*/*/*.jpg')
+#     data = {}
+#     for path in files:
+#         y = os.path.basename(os.path.dirname(path))
+#         if y in data:
+#             data[y].append(path)
+#         else:
+#             data[y] = [path]
+#     return data
+
 def get_data_deep(root_images):
 
     import glob
     files = glob.glob(root_images+'/*/*/*.jpg')
     data = {}
     for path in files:
-        y = os.path.basename(os.path.dirname(path))
+        y = os.path.basename(os.path.dirname(os.path.dirname(path)))
         if y in data:
             data[y].append(path)
         else:

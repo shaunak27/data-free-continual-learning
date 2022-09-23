@@ -22,6 +22,60 @@ import pandas as pd
 # number data to sample for TSNE visualizations
 NUM_TSNE = 1000
 
+def tsne_eval(X_in, Y, save_name, title, num_colors, clusters=None):
+    from tsne import bh_sne
+    num_colors += 1
+
+    # sample for TSNE
+    NUM_TSNE=len(X_in)
+    sample_ind = np.random.choice(len(X_in), NUM_TSNE, replace=False)
+    X_in = X_in[sample_ind]
+    Y = Y[sample_ind]
+
+    # tsne embeddings
+    X = bh_sne(X_in)
+    X[:,0] = (X[:,0] - min(X[:,0])) / (max(X[:,0]) - min(X[:,0]))
+    X[:,1] = (X[:,1] - min(X[:,1])) / (max(X[:,1]) - min(X[:,1]))
+    
+    cmap = plt.get_cmap('jet')
+    colors = cmap(np.linspace(0, 1.0, num_colors))
+    for i in np.unique(Y):
+        if i >= 0:
+            index = np.where(Y == i)[0]
+            plt.scatter(
+                    X[index,0],
+                    X[index,1],
+                    c=[colors[i+1] for j in range(len(index))],
+                    s=5,
+                    label="d-" + str(i)
+                )
+    plt.scatter(
+                X[:,0],
+                X[:,1],
+                c=[colors[Y[j]] for j in range(len(X))],
+                s=5,
+            )
+    
+    plt.ylabel("TSNE-1", fontweight="bold", fontsize=12)
+    plt.xlabel("TSNE-2", fontweight="bold", fontsize=12)
+    plt.title(
+        "TSNE Component Analysis - " + str(title),
+        fontweight="bold",
+        fontsize=14,
+    )
+    plt.ylim(-0.05, 1.05)
+    plt.xlim(-0.15, 1.05)
+    plt.yticks(np.arange(0, 1.1, .2),fontsize=12)
+    plt.xticks(np.arange(0, 1.1, .2),fontsize=12)
+    plt.grid()
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(save_name+'tsne.png')
+    plt.close()
+
+
+    
+
 def cka_plot(save_file, x, y_array, y_label_array):
 
   cmap = plt.get_cmap('jet')
@@ -172,14 +226,14 @@ def tsne_eval_new(X_in, Y, Ym, Y_pred,  marker_label, save_name, save_name_b, sa
 
 
 
-def tsne_eval(X_in, Y, save_name, title, num_colors, clusters=None):
-  pass
 
-def pca_eval(X_in, Y, save_name, title, num_colors, embedding, clusters=None):
+
+def pca_eval(X_in, Y, save_name, title, num_colors, embedding=None, clusters=None):
     
     num_colors += 1
 
     # sample for PCA
+    NUM_TSNE = int(len(X_in)*0.05)
     sample_ind = np.random.choice(len(X_in), NUM_TSNE, replace=False)
     X_in = X_in[sample_ind]
     Y = Y[sample_ind]
@@ -212,14 +266,14 @@ def pca_eval(X_in, Y, save_name, title, num_colors, embedding, clusters=None):
                     X[index,0],
                     X[index,1],
                     c=[colors[i+1] for j in range(len(index))],
-                    s=1.5,
+                    s=5,
                     label="class " + str(i)
                 )
     plt.scatter(
                 X[:,0],
                 X[:,1],
                 c=[colors[Y[j]] for j in range(len(X))],
-                s=1.5,
+                s=5,
             )
     
     # plot cluster centers

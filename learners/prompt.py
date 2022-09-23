@@ -13,7 +13,7 @@ from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval
 from torch.optim import Optimizer
 import contextlib
 import os
-from .default import NormalNN, weight_reset, accumulate_acc, loss_fn_kd, Teacher
+from .default import NormalNN, weight_reset, accumulate_acc, loss_fn_kd, Teacher, count_parameters
 from .kd import LWF, get_one_hot
 import copy
 import torchvision
@@ -74,9 +74,13 @@ class DualPrompt(LWF):
 
         # parse optimizer args
         params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
-        # params_to_opt = list(self.model.module.prompt.parameters())
-        # print(params_to_opt)
-        # print(count_paramters(params_to_opt))
+        print('*****************************************')
+        print('*****************************************')
+        print('*****************************************')
+        print('Num param opt: ' + str(count_parameters(params_to_opt)))
+        print('*****************************************')
+        print('*****************************************')
+        print('*****************************************')
         optimizer_arg = {'params':params_to_opt,
                          'lr':self.config['lr'],
                          'weight_decay':self.config['weight_decay']}
@@ -177,6 +181,13 @@ class Linear(Finetune):
     def init_optimizer(self):
 
         # parse optimizer args
+        print('*****************************************')
+        print('*****************************************')
+        print('*****************************************')
+        print('Num param opt: ' + str(count_parameters(self.model.module.last.parameters())))
+        print('*****************************************')
+        print('*****************************************')
+        print('*****************************************')
         optimizer_arg = {'params':self.model.module.last.parameters(),
                          'lr':self.config['lr'],
                          'weight_decay':self.config['weight_decay']}
@@ -200,5 +211,3 @@ class Linear(Finetune):
             self.scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=self.schedule, gamma=0.1)
 
 
-def count_parameters(params):
-    return sum(p.numel() for p in params if p.requires_grad)

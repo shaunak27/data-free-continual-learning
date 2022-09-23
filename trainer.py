@@ -61,7 +61,7 @@ class Trainer:
             self.top_k = 1
         elif args.dataset == 'DomainNet':
             Dataset = dataloaders.iDOMAIN_NET
-            num_classes = 345
+            num_classes = 5
             self.dataset_size = [224,224,3]
             self.top_k = 1
         elif args.dataset == 'TinyImageNet':
@@ -75,6 +75,8 @@ class Trainer:
         if args.upper_bound_flag:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
+        args.other_split_size = 1
+        args.first_split_size = 1
 
         # load tasks
         class_order = np.arange(num_classes).tolist()
@@ -184,7 +186,6 @@ class Trainer:
         self.test_dataset.load_dataset(self.num_tasks-1, train=False)
         test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
 
-        if self.grayscale_vis: plt.rc('image', cmap='gray')
         self.learner.data_visualization(test_loader, vis_dir, name, t_index)
 
         # val data
@@ -236,13 +237,6 @@ class Trainer:
             # save current task index
             self.current_t_index = i
 
-            # save name for learner specific eval
-            if self.vis_flag:
-                vis_dir = self.log_dir + '/visualizations/task-'+self.task_names[i]+'/'
-                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-            else:
-                vis_dir = None
-
             # set seeds
             random.seed(self.seed*100 + i)
             np.random.seed(self.seed*100 + i)
@@ -278,9 +272,12 @@ class Trainer:
             # load dataloader
             train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
 
-            # # T-sne plots
-            # if self.vis_flag:
-            #     self.train_vis(vis_dir, 'pre', i, pre=True)
+            # T-sne plots
+            if True:
+                vis_dir = self.log_dir + '/visualizations/task-'+self.task_names[i]+'/'
+                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
+                self.train_vis(vis_dir, 'pre', i, pre=True)
+                print(tsne_is_finished)
             self.learner.debug_dir = vis_dir
             self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
 
@@ -302,10 +299,6 @@ class Trainer:
 
             # save model
             self.learner.save_model(model_save_dir)
-
-            # T-sne plots
-            if self.vis_flag:
-                self.train_vis(vis_dir, 'post', i)
             
             # evaluate acc
             acc_table = []
@@ -401,27 +394,6 @@ class Trainer:
                 val_name = self.task_names[j]
                 metric_table['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, task='aux_task')
                 metric_table_local['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, local=True, task='aux_task')
-
-        # # get final tsne embeddings
-        # if self.vis_flag:
-
-        #     # get new directory
-        #     vis_dir = self.log_dir + '/visualizations/final/'
-        #     if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-
-        #     # create embeddings
-        #     tsne_embedding = None
-        #     for i in reversed(range(self.max_task)):
-
-        #         # load model
-        #         model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-        #         self.learner.load_model(model_save_dir)
-
-        #         # evaluate tsne
-        #         if tsne_embedding is None:
-        #             tsne_embedding = self.train_vis(vis_dir, 'task-'+str(i+1), i)
-        #         else:
-        #             self.train_vis(vis_dir, 'task-'+str(i+1), i, embedding=tsne_embedding)
 
         # summarize metrics
         avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'])

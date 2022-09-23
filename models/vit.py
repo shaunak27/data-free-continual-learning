@@ -188,32 +188,32 @@ class VisionTransformer(nn.Module):
         B = x.shape[0]
         x = self.patch_embed(x)
 
-        cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        x = torch.cat((cls_tokens, x), dim=1)
+        # cls_tokens = self.cls_token.expand(B, -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        # x = torch.cat((cls_tokens, x), dim=1)
   
-        x = x + self.pos_embed[:,:x.size(1),:]
-        x = self.pos_drop(x)
+        # x = x + self.pos_embed[:,:x.size(1),:]
+        # x = self.pos_drop(x)
 
         prompt_loss = torch.zeros((1,), requires_grad=True).cuda()
-        for i,blk in enumerate(self.blocks):
+        # for i,blk in enumerate(self.blocks):
+        #     if i < 1:
+        #         if prompt is not None:
+        #             if train:
+        #                 p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
+        #                 prompt_loss += loss
+        #             else:
+        #                 p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
+        #             # if p_list is not None and i == 1:
+        #             #     print(x[0,0,0:10])
+        #             #     print(p_list[0][0,0,0:10])
+        #             #     print(apple)
+        #             # if p_list is not None:
+        #             #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
+        #             #     p_list = None
+        #         else:
+        #             p_list = None
 
-            if prompt is not None:
-                if train:
-                    p_list, loss, x = prompt.forward(q, i, x, train=True, task_id=task_id)
-                    prompt_loss += loss
-                else:
-                    p_list, _, x = prompt.forward(q, i, x, train=False, task_id=task_id)
-                # if p_list is not None and i == 1:
-                #     print(x[0,0,0:10])
-                #     print(p_list[0][0,0,0:10])
-                #     print(apple)
-                # if p_list is not None:
-                #     x = torch.concat((x[:,0,:].unsqueeze(1),p_list[0],p_list[1],x[:,1:,:]), dim=1)
-                #     p_list = None
-            else:
-                p_list = None
-
-            x = blk(x, register_blk==i, prompt=p_list)
+        #         x = blk(x, register_blk==i, prompt=p_list)
         x = self.norm(x)
         
         return x, prompt_loss
