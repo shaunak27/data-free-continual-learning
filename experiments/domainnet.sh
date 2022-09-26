@@ -28,59 +28,30 @@ fi
 mkdir -p $OUTDIR
 
 ###########
-# OFFLINE #
+#   NEW   #
 ###########
-
-# adapters
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name DualAdapter --upper_bound_flag \
-    --prompt_param 1 200 6 \
-    --log_dir ${OUTDIR}/vit/offline_adapt
-
-# dual prompt
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name DualPrompt --upper_bound_flag \
-    --prompt_param 1 200 6 \
-    --log_dir ${OUTDIR}/vit/offline_prompt
-
-# l2p
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P --upper_bound_flag \
-    --prompt_param 30 20 -1 \
-    --log_dir ${OUTDIR}/vit/offline_l2p
-
-# linear only
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name Linear --upper_bound_flag  \
-    --log_dir ${OUTDIR}/vit/offline_linear
-
-# base
-python -u run.py --config $CONFIG_VIT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type default --learner_name NormalNN --upper_bound_flag \
-    --log_dir ${OUTDIR}/vit/offline_finetune
-
-
-#############
-# CONTINUAL #
-#############
-
-# adapters
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name DualAdapter \
-    --prompt_param 10 20 6 \
-    --log_dir ${OUTDIR}/vit/adapt
 
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 30 20 -1 \
-    --log_dir ${OUTDIR}/vit/l2p
+    --prompt_param 18 6 1 \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # dual prompt
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
     --prompt_param 10 20 6 \
     --log_dir ${OUTDIR}/vit/dual-prompt
+
+# #############
+# # CONTINUAL #
+# #############
+
+# l2p
+python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 30 20 -1 \
+    --log_dir ${OUTDIR}/vit/l2p
 
 # linear only
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
@@ -96,16 +67,3 @@ python -u run.py --config $CONFIG_VIT --gpuid $GPUID --repeat $REPEAT --memory $
 python -u run.py --config $CONFIG_VIT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type default --learner_name NormalNN --oracle_flag \
     --log_dir ${OUTDIR}/vit/oracle
-
-
-
-
-# smart finetuning
-python -u run.py --config $CONFIG_VIT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name Finetune \
-    --log_dir ${OUTDIR}/vit/base_smart
-
-# base
-python -u run.py --config $CONFIG_VIT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type default --learner_name NormalNN \
-    --log_dir ${OUTDIR}/vit/base
