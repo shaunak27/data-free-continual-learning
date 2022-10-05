@@ -6,214 +6,88 @@ import torchvision.models as models
 from torch.autograd import Variable
 from .vit import VisionTransformer
 import numpy as np
+import math
 
-SINGLE_KEY_DUAL_PROMPT = False
+class HLoss(nn.Module):
+    def __init__(self):
+        super(HLoss, self).__init__()
 
-def tensor_prompt(a, b, c=None):
+    def forward(self, x):
+        b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
+        b = -1.0 * b.sum(dim=1).mean()
+        return b
+
+class DLoss(nn.Module):
+    def __init__(self):
+        super(DLoss, self).__init__()
+
+    def forward(self, x):
+        b = F.softmax(x,dim=1).mean(dim=0)
+        loss = 1.0 + (b * torch.log(b) / math.log(x.size(1))).sum()
+        return loss
+
+def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
     else:
         p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
     nn.init.uniform_(p)
+    # nn.init.zeros_(p)
+
     return p
+    # if ortho:
+    #     print(p)
+    #     print(apple)
+    #     return torch.nn.utils.parametrizations.orthogonal(p)
+    # else:
+    #     return p
 
-def init_weights_adapter(m):
-    if type(m) == nn.Linear:
-        m.weight.data.fill_(0.0)
-
-def two_layer_adapter(a):
-    adapter = nn.Sequential(
-                            nn.Linear(a, a),
-                            nn.Tanh(),
-                            nn.Linear(a, a),
-                        )
-    adapter.apply(init_weights_adapter)
-    return adapter
-
-class DualAdapt(nn.Module):
-    def __init__(self, emb_d, n_tasks, prompt_param):
-        super().__init__()
-        self.task_count_f = 0
-        self.emb_d = emb_d
-        self.key_d = 768
-        self._init_smart(emb_d, n_tasks, prompt_param)
-
-        # init frequency table
-        self.frequency_past = None
-        self.frequency_current = {}
-        for l in self.e_layers:
-            self.frequency_current[l] = [0.001 for i in range(self.e_pool_size)]
-
-        # g prompt init
-        for g in self.g_layers:
-            a = two_layer_adapter(emb_d)
-            setattr(self, f'g_a_{g}',a)
-
-        # e prompt init
-        for e in self.e_layers:
-            p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
-            k = tensor_prompt(self.e_pool_size, emb_d)
-            setattr(self, f'e_p_{e}',p)
-            if not SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k_{e}',k)
-        if SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k',k)
-
-    def _init_smart(self, emb_d, n_tasks, prompt_param):
-        
-        self.top_k = 1
-        self.task_id_bootstrap = True
-
-        # prompt locations
-        self.g_layers = [0,1]
-        self.e_layers = [3,4,5]
-
-        # prompt pool size
-        self.g_p_length = -1
-        self.e_p_length = prompt_param[1]
-        self.e_pool_size = prompt_param[0]
-
-    def process_frequency(self):
-        self.task_count_f += 1
-        self.frequency_past = {}
-        for key, f_table in self.frequency_current.items():
-            f_past = []
-            for p in range(len(f_table)):               
-                f_past.append(float(f_table[p])/sum(f_table))
-            self.frequency_past[key] = f_past
-            self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print(self.task_count_f)
-        print(self.frequency_past)
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-
-    def forward(self, x_querry, l, x_block, train=False, task_id=None):
-
-        # e prompts
-        e_valid = False
-        if l in self.e_layers:
-            if SINGLE_KEY_DUAL_PROMPT:
-                K = getattr(self,f'e_k') # 0 based indexing here
-            else:
-                K = getattr(self,f'e_k_{l}') # 0 based indexing here
-            B, C = x_querry.shape
-
-            # cosine similarity to match keys/querries
-            n_K = nn.functional.normalize(K, dim=1)
-            q = nn.functional.normalize(x_querry, dim=1).detach()
-            cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-            top_k = torch.topk(cos_sim, self.top_k, dim=1)
-            ix = top_k.indices
-
-            if train:
-                p = getattr(self,f'e_p_{l}') # 0 based indexing here
-                if self.task_id_bootstrap:
-                    loss = 1.0 - cos_sim[:,task_id].mean()  # the cosine similarity is always le 1
-                    P_ = p[task_id].expand(len(x_querry),-1,-1)
-                else:
-                    loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
-                    k_idx = top_k.indices
-                    P_ = p[k_idx][:,0]
-
-            else:
-                k_idx = top_k.indices
-                p = getattr(self,f'e_p_{l}') # 0 based indexing here
-                P_ = p[k_idx][:,0]
-                f_to_add = np.bincount(k_idx.detach().cpu().numpy().flatten(),minlength=self.e_pool_size)
-                self.frequency_current[l] += f_to_add
-            
-            # select prompts
-            i = int(self.e_p_length/2)
-            Ek = P_[:,:i,:]
-            Ev = P_[:,i:,:]
-        
-        # g prompts
-        if l in self.g_layers:
-            a = getattr(self,f'g_a_{l}') # 0 based indexing here
-            ada_out = a(x_block)
-            x_block = x_block + ada_out/1000.0
-
-        # combine prompts for prefix tuning
-        if e_valid:
-            p_return = [Ek, Ev]
-        else:
-            p_return = None
-            loss = 0
-
-        # return
-        if train:
-            return p_return, loss, x_block
-        else:
-            return p_return, 0, x_block
+DEBUG_METRICS=False
 
 class DualPrompt(nn.Module):
-    def __init__(self, emb_d, n_tasks, prompt_param):
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
         super().__init__()
         self.task_count_f = 0
         self.emb_d = emb_d
-        self.key_d = 768
-        self._init_smart(emb_d, n_tasks, prompt_param)
-
-        # init frequency table
-        self.frequency_past = None
-        self.frequency_current = {}
-        for l in self.e_layers:
-            self.frequency_current[l] = [0.001 for i in range(self.e_pool_size)]
-
-        # g prompt init
-        for g in self.g_layers:
-            p = tensor_prompt(self.g_p_length, emb_d)
-            setattr(self, f'g_p_{g}',p)
+        self.key_d = key_dim
+        self.expand_and_freeze = False
+        self.n_tasks = n_tasks
+        self._init_smart(emb_d, prompt_param)
+        self.counter = 0
+        self.cos = nn.CosineSimilarity(dim=2, eps=1e-6)
+        self.h_loss = HLoss()
+        self.d_loss = DLoss()
+        self.ce_loss = nn.BCELoss()
 
         # e prompt init
+        if DEBUG_METRICS: self.metrics = {'attention':{},'keys':{}}
         for e in self.e_layers:
-            p = tensor_prompt(self.e_pool_size, self.e_p_length, emb_d)
-            k = tensor_prompt(self.e_pool_size, emb_d)
+            p = tensor_prompt(self.e_p_length, self.e_pool_size, emb_d, ortho=True)
+            k = tensor_prompt(self.e_pool_size, self.key_d, ortho=True)
+            a = tensor_prompt(self.e_pool_size, self.key_d, ortho=True)
             setattr(self, f'e_p_{e}',p)
-            if not SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k_{e}',k)
-        if SINGLE_KEY_DUAL_PROMPT: setattr(self, f'e_k',k)
+            setattr(self, f'e_k_{e}',k)
+            setattr(self, f'e_a_{e}',a)
 
-    def _init_smart(self, emb_d, n_tasks, prompt_param):
-        
-        self.top_k = 1
-        self.task_id_bootstrap = True
+            if DEBUG_METRICS:
+                self.metrics['keys'][e] = torch.zeros((self.e_pool_size,))
+
+    def _init_smart(self, emb_d, prompt_param):
+        self.top_k = 3
+        self.task_id_bootstrap = False
 
         # prompt locations
-        self.g_layers = [0,1]
-        self.e_layers = [3,4,5]
+        self.e_layers = [0,1,2,3,4,5]
+
+        if prompt_param[3] == 3:
+            self.expand_and_freeze = True
 
         # prompt pool size
-        self.g_p_length = prompt_param[2]
         self.e_p_length = prompt_param[1]
         self.e_pool_size = prompt_param[0]
 
     def process_frequency(self):
         self.task_count_f += 1
-        self.frequency_past = {}
-        for key, f_table in self.frequency_current.items():
-            f_past = []
-            for p in range(len(f_table)):               
-                f_past.append(float(f_table[p])/sum(f_table))
-            self.frequency_past[key] = f_past
-            self.frequency_current[key] = [0.001 for i in range(self.e_pool_size)]
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print(self.task_count_f)
-        print(self.frequency_past)
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
-        print('*********************************')
 
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
@@ -222,93 +96,105 @@ class DualPrompt(nn.Module):
         e_valid = False
         if l in self.e_layers:
             e_valid = True
-            if SINGLE_KEY_DUAL_PROMPT:
-                K = getattr(self,f'e_k') # 0 based indexing here
-            else:
-                K = getattr(self,f'e_k_{l}') # 0 based indexing here
             B, C = x_querry.shape
 
-            # cosine similarity to match keys/querries
-            n_K = nn.functional.normalize(K, dim=1)
-            q = nn.functional.normalize(x_querry, dim=1).detach()
-            cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-            top_k = torch.topk(cos_sim, self.top_k, dim=1)
-            ix = top_k.indices
-
-            if train:
-                p = getattr(self,f'e_p_{l}') # 0 based indexing here
-                if self.task_id_bootstrap:
-                    loss = 1.0 - cos_sim[:,task_id].mean()  # the cosine similarity is always le 1
-                    P_ = p[task_id].expand(len(x_querry),-1,-1)
+            K = getattr(self,f'e_k_{l}')
+            A = getattr(self,f'e_a_{l}')
+            p = getattr(self,f'e_p_{l}')
+            if self.expand_and_freeze:
+                
+                # freeze/control past tasks
+                pt = int(self.e_pool_size / (self.n_tasks + 1))
+                if self.task_count_f == 0:
+                    s = 0
                 else:
-                    loss = 1.0 - top_k.values.mean()  # the cosine similarity is always le 1
-                    k_idx = top_k.indices
-                    P_ = p[k_idx][:,0]
+                    s = int(self.task_count_f * pt) + pt
+                f = int((self.task_count_f + 1) * pt) + pt
+                # s = 0
+                # f = 10
+                if train:
+                    if self.task_count_f > 0:
+                        K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
+                        A = torch.cat((A[:s].detach().clone(),A[s:f]), dim=0)
+                        p = torch.cat((p[:,:s].detach().clone(),p[:,s:f]), dim=1)
+                    else:
+                        K = K[s:f]
+                        A = A[s:f]
+                        p = p[:,s:f]
+                else:
+                    K = K[0:f]
+                    A = A[0:f]
+                    p = p[:,0:f]
 
-            else:
-                k_idx = top_k.indices
-                p = getattr(self,f'e_p_{l}') # 0 based indexing here
-                P_ = p[k_idx][:,0]
-                f_to_add = np.bincount(k_idx.detach().cpu().numpy().flatten(),minlength=self.e_pool_size)
-                self.frequency_current[l] += f_to_add
-            
+            ##########
+            # with attention and cosine sim
+            ##########
+            # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
+            a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
+            # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
+            # n_K = nn.functional.normalize(K, dim=1)
+            # q = nn.functional.normalize(a_querry, dim=2)
+            # aq_k = torch.einsum('bkd,kd->bk', q, n_K)
+            aq_k =self.cos(a_querry, K.expand(B,-1,-1))
+            # aq_k = torch.sigmoid(aq_k)
+            # aq_k = nn.functional.softmax(aq_k,dim=1)
+            aq_k = (aq_k + 1.0 ) / 2.0
+
+            # get top 3
+            top_k = torch.topk(aq_k, self.top_k, dim=1)
+            # if not train:
+            #     bad_k = torch.topk(-1*aq_k, f-self.top_k, dim=1)
+            #     for k in range(f-self.top_k):
+            #         aq_k[np.arange(B).tolist(),bad_k.indices[:,k]] = 0
+
+            # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
+            P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+            # if l == 0 and not train:
+            #     print(aq_k[0:5])
+                # print(P_[0:5])
+                # print(apple)
+
+            # if not train and DEBUG_METRICS:
+            #     self.metrics['keys'][l][0:f] += aq_k.sum(dim=0).detach().cpu()
+            #     if self.counter == 5:
+            #         print('**********')
+            #         print('l = ' + str(l))
+            #         print(self.metrics['keys'][l])
+            #         self.counter = 0
+            #     self.counter += 1
+                
             # select prompts
             i = int(self.e_p_length/2)
             Ek = P_[:,:i,:]
             Ev = P_[:,i:,:]
-        
-        # g prompts
-        g_valid = False
-        if l in self.g_layers:
-            g_valid = True
-            j = int(self.g_p_length/2)
-            p = getattr(self,f'g_p_{l}') # 0 based indexing here
-            P_ = p.expand(len(x_querry),-1,-1)
-            Gk = P_[:,:j,:]
-            Gv = P_[:,j:,:]
+
+            loss = 0
+            mu = 1
+            if train and mu > 0:
+                target_mod = torch.zeros(B,f).cuda()
+                for k in range(self.top_k):
+                    target_mod[np.arange(B).tolist(),top_k.indices[:,k]] = 1
+                loss = self.ce_loss(aq_k, target_mod)
+                # loss += mu * self.d_loss(aq_k)
+                
+            else:
+                loss = 0
+
+        else:
+            loss = 0
 
         # combine prompts for prefix tuning
-        if e_valid and g_valid:
-            Pk = torch.cat((Ek, Gk), dim=1)
-            Pv = torch.cat((Ev, Gv), dim=1)
-            p_return = [Pk, Pv]
-        elif e_valid:
+        if e_valid:
             p_return = [Ek, Ev]
-        elif g_valid:
-            p_return = [Gk, Gv]
-            loss = 0
         else:
             p_return = None
-            loss = 0
 
         # return
         if train:
             return p_return, loss, x_block
         else:
             return p_return, 0, x_block
-
-class L2P(DualPrompt):
-    def __init__(self, emb_d, n_tasks, prompt_param):
-        super().__init__(emb_d, n_tasks, prompt_param)
-
-    def _init_smart(self, emb_d, n_tasks, prompt_param):
-        self.top_k = 5
-        self.task_id_bootstrap = False
-
-        # prompt locations
-        self.g_layers = []
-        if prompt_param[2] > 0:
-            self.e_layers = [0,1,3,4,5]
-        else:
-            self.e_layers = [0]
-
-        # prompt pool size
-        self.g_p_length = -1
-        self.e_p_length = prompt_param[1]
-        self.e_pool_size = prompt_param[0]
-
-
-
+        
 
 
 class ResNetZoo(nn.Module):
@@ -318,7 +204,6 @@ class ResNetZoo(nn.Module):
         # get last layer
         self.last = nn.Linear(512, num_classes)
         self.prompt_flag = prompt_flag
-        self.train_flag = False
         self.task_id = None
 
         # get feature encoder
@@ -342,9 +227,6 @@ class ResNetZoo(nn.Module):
         elif self.prompt_flag == 'dual':
             self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
 
-        elif self.prompt_flag == 'dualadapter':
-            self.prompt = DualAdapt(768, prompt_param[0], prompt_param[1])
-
         else:
             self.prompt = None
         
@@ -352,13 +234,13 @@ class ResNetZoo(nn.Module):
         self.feat = zoo_model
         
 
-    def forward(self, x, pen=False):
+    def forward(self, x, pen=False, train=False):
 
         if self.prompt is not None:
             with torch.no_grad():
                 q, _ = self.feat(x)
                 q = q[:,0,:]
-            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=self.train_flag, task_id=self.task_id)
+            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
             out = out[:,0,:]
         else:
             out, _ = self.feat(x)
@@ -368,10 +250,33 @@ class ResNetZoo(nn.Module):
             return out
         else:
             out = self.last(out)
-            if self.prompt is not None and self.train_flag:
+            if self.prompt is not None and train:
                 return out, prompt_loss
             else:
                 return out
 
 def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
     return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param)
+
+
+
+
+            # ##########
+            # # no attention
+            # ##########
+            # # (b x 1 x d) - [1 x k x d] = (b x k) -> key = k x d
+            # n_K = nn.functional.normalize(K, dim=1)
+            # q = nn.functional.normalize(x_querry, dim=1).detach()
+            # aq_k = torch.einsum('bd,kd->bk', q, n_K)
+            # # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
+            # P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+            # ##########
+            # # with attention and difference matching
+            # ##########
+            # # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
+            # a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
+            # # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
+            # aq_k = (a_querry - K.expand(B,-1,-1)).sum(dim=2)
+            # # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
+            # P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+            # ##########

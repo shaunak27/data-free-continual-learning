@@ -383,6 +383,15 @@ class Trainer:
             self.learner.pre_steps()
             self.learner.load_model(model_save_dir)
 
+            # frequency table process
+            if i > 0:
+                try:
+                    if self.learner.model.module.prompt is not None:
+                        self.learner.model.module.prompt.process_frequency()
+                except:
+                    if self.learner.model.prompt is not None:
+                        self.learner.model.prompt.process_frequency()
+
             # evaluate acc
             metric_table['acc'][self.task_names[i]] = OrderedDict()
             metric_table_local['acc'][self.task_names[i]] = OrderedDict()

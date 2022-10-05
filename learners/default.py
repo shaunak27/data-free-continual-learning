@@ -452,7 +452,7 @@ class NormalNN(nn.Module):
             return -1
 
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1):
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False):
 
         if model is None:
             if task_metric == 'acc':
@@ -490,8 +490,12 @@ class NormalNN(nn.Module):
                         output = model.forward(input)[:, :cka_flag]
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
-                        output = model.forward(input)[:, task_in]
-                        acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
+                        if task_global:
+                            output = model.forward(input)[:, :self.valid_out_dim]
+                            acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
+                        else:
+                            output = model.forward(input)[:, task_in]
+                            acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
             
         model.train(orig_mode)
 
