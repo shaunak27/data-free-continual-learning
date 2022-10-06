@@ -6,25 +6,9 @@ import torchvision.models as models
 from torch.autograd import Variable
 from .vit import VisionTransformer
 import numpy as np
-import math
 
-class HLoss(nn.Module):
-    def __init__(self):
-        super(HLoss, self).__init__()
-
-    def forward(self, x):
-        b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
-        b = -1.0 * b.sum(dim=1).mean()
-        return b
-
-class DLoss(nn.Module):
-    def __init__(self):
-        super(DLoss, self).__init__()
-
-    def forward(self, x):
-        b = F.softmax(x,dim=1).mean(dim=0)
-        loss = 1.0 + (b * torch.log(b) / math.log(x.size(1))).sum()
-        return loss
+def ortho_penalty(t):
+    return ((t @t.T - torch.eye (t.shape[0]))**2).sum()
 
 def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
@@ -35,12 +19,6 @@ def tensor_prompt(a, b, c=None, ortho=False):
     # nn.init.zeros_(p)
 
     return p
-    # if ortho:
-    #     print(p)
-    #     print(apple)
-    #     return torch.nn.utils.parametrizations.orthogonal(p)
-    # else:
-    #     return p
 
 DEBUG_METRICS=False
 
@@ -54,17 +32,13 @@ class DualPrompt(nn.Module):
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
         self.counter = 0
-        self.cos = nn.CosineSimilarity(dim=2, eps=1e-6)
-        self.h_loss = HLoss()
-        self.d_loss = DLoss()
-        self.ce_loss = nn.BCELoss()
 
         # e prompt init
         if DEBUG_METRICS: self.metrics = {'attention':{},'keys':{}}
         for e in self.e_layers:
-            p = tensor_prompt(self.e_p_length, self.e_pool_size, emb_d, ortho=True)
-            k = tensor_prompt(self.e_pool_size, self.key_d, ortho=True)
-            a = tensor_prompt(self.e_pool_size, self.key_d, ortho=True)
+            p = tensor_prompt(self.e_p_length, self.e_pool_size, emb_d)
+            k = tensor_prompt(self.e_pool_size, self.key_d)
+            a = tensor_prompt(self.e_pool_size, self.key_d)
             setattr(self, f'e_p_{e}',p)
             setattr(self, f'e_k_{e}',k)
             setattr(self, f'e_a_{e}',a)
@@ -73,7 +47,6 @@ class DualPrompt(nn.Module):
                 self.metrics['keys'][e] = torch.zeros((self.e_pool_size,))
 
     def _init_smart(self, emb_d, prompt_param):
-        self.top_k = 3
         self.task_id_bootstrap = False
 
         # prompt locations
@@ -88,7 +61,6 @@ class DualPrompt(nn.Module):
 
     def process_frequency(self):
         self.task_count_f += 1
-
 
     def forward(self, x_querry, l, x_block, train=False, task_id=None):
 
@@ -110,8 +82,6 @@ class DualPrompt(nn.Module):
                 else:
                     s = int(self.task_count_f * pt) + pt
                 f = int((self.task_count_f + 1) * pt) + pt
-                # s = 0
-                # f = 10
                 if train:
                     if self.task_count_f > 0:
                         K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
@@ -132,53 +102,33 @@ class DualPrompt(nn.Module):
             # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
             a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
             # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
-            # n_K = nn.functional.normalize(K, dim=1)
-            # q = nn.functional.normalize(a_querry, dim=2)
-            # aq_k = torch.einsum('bkd,kd->bk', q, n_K)
-            aq_k =self.cos(a_querry, K.expand(B,-1,-1))
-            # aq_k = torch.sigmoid(aq_k)
-            # aq_k = nn.functional.softmax(aq_k,dim=1)
-            aq_k = (aq_k + 1.0 ) / 2.0
-
-            # get top 3
-            top_k = torch.topk(aq_k, self.top_k, dim=1)
-            # if not train:
-            #     bad_k = torch.topk(-1*aq_k, f-self.top_k, dim=1)
-            #     for k in range(f-self.top_k):
-            #         aq_k[np.arange(B).tolist(),bad_k.indices[:,k]] = 0
-
+            n_K = nn.functional.normalize(K, dim=1)
+            q = nn.functional.normalize(a_querry, dim=2)
+            aq_k = torch.einsum('bkd,kd->bk', q, n_K)
             # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
             P_ = torch.einsum('bk,lkd->bld', aq_k, p)
-            # if l == 0 and not train:
-            #     print(aq_k[0:5])
-                # print(P_[0:5])
-                # print(apple)
 
-            # if not train and DEBUG_METRICS:
-            #     self.metrics['keys'][l][0:f] += aq_k.sum(dim=0).detach().cpu()
-            #     if self.counter == 5:
-            #         print('**********')
-            #         print('l = ' + str(l))
-            #         print(self.metrics['keys'][l])
-            #         self.counter = 0
-            #     self.counter += 1
-                
+            if not train and DEBUG_METRICS:
+                self.metrics['keys'][l][0:f] += aq_k.sum(dim=0).detach().cpu()
+                if self.counter == 5:
+                    print('**********')
+                    print('l = ' + str(l))
+                    print(self.metrics['keys'][l])
+                    self.counter = 0
+                self.counter += 1
+             
             # select prompts
             i = int(self.e_p_length/2)
             Ek = P_[:,:i,:]
             Ev = P_[:,i:,:]
 
-            loss = 0
-            mu = 1
-            if train and mu > 0:
-                target_mod = torch.zeros(B,f).cuda()
-                for k in range(self.top_k):
-                    target_mod[np.arange(B).tolist(),top_k.indices[:,k]] = 1
-                loss = self.ce_loss(aq_k, target_mod)
-                # loss += mu * self.d_loss(aq_k)
-                
-            else:
-                loss = 0
+            mu = 0.1
+            loss = ortho_penalty(K)
+            loss += ortho_penalty(A)
+            a = p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)
+            print(a.size())
+            print(apple)
+            loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2))
 
         else:
             loss = 0
@@ -195,7 +145,6 @@ class DualPrompt(nn.Module):
         else:
             return p_return, 0, x_block
         
-
 
 class ResNetZoo(nn.Module):
     def __init__(self, num_classes=10, pt=False, mode=1, prompt_flag=False, prompt_param=None):
@@ -257,26 +206,3 @@ class ResNetZoo(nn.Module):
 
 def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
     return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param)
-
-
-
-
-            # ##########
-            # # no attention
-            # ##########
-            # # (b x 1 x d) - [1 x k x d] = (b x k) -> key = k x d
-            # n_K = nn.functional.normalize(K, dim=1)
-            # q = nn.functional.normalize(x_querry, dim=1).detach()
-            # aq_k = torch.einsum('bd,kd->bk', q, n_K)
-            # # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-            # P_ = torch.einsum('bk,lkd->bld', aq_k, p)
-            # ##########
-            # # with attention and difference matching
-            # ##########
-            # # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
-            # a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
-            # # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
-            # aq_k = (a_querry - K.expand(B,-1,-1)).sum(dim=2)
-            # # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-            # P_ = torch.einsum('bk,lkd->bld', aq_k, p)
-            # ##########
