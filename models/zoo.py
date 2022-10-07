@@ -6,9 +6,10 @@ import torchvision.models as models
 from torch.autograd import Variable
 from .vit import VisionTransformer
 import numpy as np
+import math
 
-def ortho_penalty(t):
-    return ((t @t.T - torch.eye (t.shape[0]))**2).sum()
+# def ortho_penalty(t):
+#     return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean() * 1e-6
 
 def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
@@ -20,7 +21,27 @@ def tensor_prompt(a, b, c=None, ortho=False):
 
     return p
 
-DEBUG_METRICS=False
+# class HLoss(nn.Module):
+#     def __init__(self):
+#         super(HLoss, self).__init__()
+
+#     def forward(self, x):
+#         b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
+#         b = -1.0 * b.sum(dim=1).mean()
+#         return b
+
+# class DLoss(nn.Module):
+#     def __init__(self):
+#         super(DLoss, self).__init__()
+
+#     def forward(self, x):
+#         b = F.softmax(x,dim=1).mean(dim=0) 
+#         # loss = 1.0 + (b * torch.log(b) / math.log(x.size(1))).sum()
+#         a = b.mean()
+#         loss = torch.abs(a - b).mean()
+#         return loss
+
+DEBUG_METRICS=True
 
 class DualPrompt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
@@ -32,6 +53,8 @@ class DualPrompt(nn.Module):
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
         self.counter = 0
+        # self.h_loss = HLoss()
+        # self.d_loss = DLoss()
 
         # e prompt init
         if DEBUG_METRICS: self.metrics = {'attention':{},'keys':{}}
@@ -50,7 +73,7 @@ class DualPrompt(nn.Module):
         self.task_id_bootstrap = False
 
         # prompt locations
-        self.e_layers = [0,1,2,3,4,5]
+        self.e_layers = [0,1,5]
 
         if prompt_param[3] == 3:
             self.expand_and_freeze = True
@@ -58,6 +81,7 @@ class DualPrompt(nn.Module):
         # prompt pool size
         self.e_p_length = prompt_param[1]
         self.e_pool_size = prompt_param[0]
+        self.ortho_mu = prompt_param[2]
 
     def process_frequency(self):
         self.task_count_f += 1
@@ -76,12 +100,15 @@ class DualPrompt(nn.Module):
             if self.expand_and_freeze:
                 
                 # freeze/control past tasks
-                pt = int(self.e_pool_size / (self.n_tasks + 1))
-                if self.task_count_f == 0:
-                    s = 0
-                else:
-                    s = int(self.task_count_f * pt) + pt
-                f = int((self.task_count_f + 1) * pt) + pt
+                pt = int(self.e_pool_size / (self.n_tasks))
+                s = int(self.task_count_f * pt)
+                f = int((self.task_count_f + 1) * pt)
+                # pt = int(self.e_pool_size / (self.n_tasks + 1))
+                # if self.task_count_f == 0:
+                #     s = 0
+                # else:
+                #     s = int(self.task_count_f * pt) + pt
+                # f = int((self.task_count_f + 1) * pt) + pt
                 if train:
                     if self.task_count_f > 0:
                         K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
@@ -96,39 +123,93 @@ class DualPrompt(nn.Module):
                     A = A[0:f]
                     p = p[:,0:f]
 
-            ##########
-            # with attention and cosine sim
-            ##########
-            # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
-            a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
-            # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
-            n_K = nn.functional.normalize(K, dim=1)
-            q = nn.functional.normalize(a_querry, dim=2)
-            aq_k = torch.einsum('bkd,kd->bk', q, n_K)
-            # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-            P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+            if self.ortho_mu < 0:
+                ##########
+                # cosine sim
+                ##########
+                # # (b x 1 x d) - [1 x k x d] = (b x k) -> key = k x d
+                n_K = nn.functional.normalize(K, dim=1)
+                q = nn.functional.normalize(x_querry, dim=1)
+                aq_k_p = torch.einsum('bd,kd->bk', q, n_K)
+                aq_k = nn.functional.softmax(aq_k_p,dim=1)
+                # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
+                P_ = torch.einsum('bk,lkd->bld', aq_k, p)
 
-            if not train and DEBUG_METRICS:
-                self.metrics['keys'][l][0:f] += aq_k.sum(dim=0).detach().cpu()
-                if self.counter == 5:
-                    print('**********')
-                    print('l = ' + str(l))
-                    print(self.metrics['keys'][l])
-                    self.counter = 0
-                self.counter += 1
+            else:
+                ##########
+                # with attention and cosine sim
+                ##########
+                # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
+                a_querry = torch.einsum('bd,kd->bkd', x_querry, nn.functional.softmax(A,dim=1))
+                # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
+                n_K = nn.functional.normalize(K, dim=1)
+                q = nn.functional.normalize(a_querry, dim=2)
+                aq_k = torch.einsum('bkd,kd->bk', q, n_K)
+                # aq_k = nn.functional.softmax(aq_k_p,dim=1)
+                # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
+                P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+
+            # if not train and DEBUG_METRICS:
+            #     print(aq_k[0:5])
+            #     self.metrics['keys'][l][0:f] = aq_k.sum(dim=0).detach().cpu()
+            #     if self.counter == 5:
+            #         print('**********')
+            #         print('l = ' + str(l))
+            #         print(self.metrics['keys'][l])
+            #         self.counter = 0
+            #         if self.task_count_f == 1: print(apple)
+            #     self.counter += 1
              
             # select prompts
             i = int(self.e_p_length/2)
             Ek = P_[:,:i,:]
             Ev = P_[:,i:,:]
 
-            mu = 0.1
-            loss = ortho_penalty(K)
-            loss += ortho_penalty(A)
-            a = p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)
-            print(a.size())
-            print(apple)
-            loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2))
+            loss = 0
+            # if self.ortho_mu > 0:
+            #     if self.ortho_mu == 1:
+            #         loss = ortho_penalty(K)
+
+            #     elif self.ortho_mu == 2:
+            #         loss = ortho_penalty(A)
+
+            #     elif self.ortho_mu == 3:
+            #         loss = ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
+
+            #     elif self.ortho_mu == 4:
+            #         loss = ortho_penalty(K)
+            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
+
+            #     elif self.ortho_mu == 5:
+            #         loss = ortho_penalty(K)
+            #         loss += ortho_penalty(A)
+
+            #     elif self.ortho_mu == 6:
+            #         loss = ortho_penalty(A)
+            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
+
+            #     elif self.ortho_mu == 7:
+            #         loss = ortho_penalty(K)
+            #         loss += ortho_penalty(A)
+            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
+            #     else:
+            #         print(fuk)
+            # else:
+            #     loss = 0
+            # if train and self.ortho_mu > 0 and self.task_count_f > 0:
+            #     loss = aq_k[:,s:f].mean()
+            # if not train and l == 0:
+            #     print(aq_k[0:3])
+            #     print(aq_k[-3:])
+            #     print(aq_k.sum(dim=0))
+            #     print('**********')
+            # if train and self.ortho_mu > 0:
+            #     # loss = self.h_loss(aq_k[:,0:f])
+            #     # loss += self.d_loss(aq_k[:,0:f])
+            #     max_ind = torch.argmax(aq_k,dim=1)
+            #     loss = (1 - aq_k[max_ind]).mean()
+            # else:
+            #     loss = 0
 
         else:
             loss = 0
