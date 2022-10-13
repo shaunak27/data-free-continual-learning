@@ -29,8 +29,8 @@ class DualPrompt(LWF):
         self.prompt_param = learner_config['prompt_param']
         super(DualPrompt, self).__init__(learner_config)
 
-    # update model - add dual prompt loss
-    def update_model_old(self, inputs, targets, target_KD = None):
+    # update model - add dual prompt loss   
+    def update_model(self, inputs, targets, target_KD = None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
@@ -46,7 +46,7 @@ class DualPrompt(LWF):
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
         # ce loss
-        total_loss = total_loss + prompt_loss.sum()
+        total_loss = total_loss + self.mu * prompt_loss.sum()
 
         # step
         self.optimizer.zero_grad()
@@ -54,35 +54,6 @@ class DualPrompt(LWF):
         self.optimizer.step()
 
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
-
-    # update model - add dual prompt loss   
-    def update_model(self, inputs, targets, target_KD = None):
-
-        # logits
-        pen, prompt_loss = self.model(inputs, train=True, pen=True)
-        if len(self.config['gpuid']) > 1:
-            logits_new = self.model.module.last(pen)
-        else:
-            logits_new = self.model.last(pen)
-        
-        if target_KD is not None:
-            logits = logits_new[:,self.last_valid_out_dim:self.valid_out_dim]
-            target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
-            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
-        else:
-            logits = logits_new[:,:self.valid_out_dim]
-            target_mod = get_one_hot(targets, self.valid_out_dim)
-            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
-        
-        # ce loss
-        total_loss = total_loss + prompt_loss.sum()
-
-        # step
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-
-        return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
 
     # sets model optimizers
     def init_optimizer(self):
@@ -168,7 +139,7 @@ class DualPromptKD(DualPrompt):
             total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
 
         # ce loss
-        total_loss = total_loss + prompt_loss.sum()
+        total_loss = total_loss + self.mu * prompt_loss.sum()
 
         # step
         self.optimizer.zero_grad()
@@ -176,6 +147,44 @@ class DualPromptKD(DualPrompt):
         self.optimizer.step()
 
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
+
+
+class DualPromptNEW(DualPrompt):
+
+    def __init__(self, learner_config):
+        self.prompt_param = learner_config['prompt_param']
+        super(DualPromptOLD, self).__init__(learner_config)
+
+    # update model - add dual prompt loss   
+    def update_model(self, inputs, targets, target_KD = None):
+
+        # logits
+        pen, prompt_loss = self.model(inputs, train=True, pen=True)
+        if len(self.config['gpuid']) > 1:
+            logits_new = self.model.module.last(pen)
+        else:
+            logits_new = self.model.last(pen)
+        
+        if target_KD is not None:
+            logits = logits_new[:,self.last_valid_out_dim:self.valid_out_dim]
+            target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        else:
+            logits = logits_new[:,:self.valid_out_dim]
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        
+        # ce loss
+        total_loss = total_loss + self.mu * prompt_loss.sum()
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
+
+    
 
 class L2P(DualPrompt):
 

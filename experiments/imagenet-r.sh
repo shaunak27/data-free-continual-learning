@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=oct_15
+DATE=oct_15b
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -30,265 +30,44 @@ mkdir -p $OUTDIR
 
 
 
+
+
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 100 20 1 3 \
-    --log_dir ${OUTDIR}/vit/l2p_freeze-expand
+    --prompt_param 100 20 1 3 --mu 0 \
+    --log_dir ${OUTDIR}/vit/atteprompt_mu-0
 
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name DualPromptKD \
-    --prompt_param 100 20 1 3 \
-    --log_dir ${OUTDIR}/vit/l2p_freeze-expand_kd
-
-# dual prompt
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 10 20 6 -1 \
-    --log_dir ${OUTDIR}/vit/dual-prompt
+    --prompt_param 100 20 1 3 --mu 1 \
+    --log_dir ${OUTDIR}/vit/atteprompt_mu-1
+
+# atteprompt
+python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name DualPrompt \
+    --prompt_param 100 20 1 3 --mu 10 \
+    --log_dir ${OUTDIR}/vit/atteprompt_mu-10
+
+# atteprompt
+python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name DualPrompt \
+    --prompt_param 100 20 1 3 --mu 0.1 \
+    --log_dir ${OUTDIR}/vit/atteprompt_mu-0.1
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # fix test acc and switch to 0.005 lr with 25 epochs
-# # both with old classifier and new classifier
-# # attemprompot wtih and without kd loss
-# # atteprompt without kd loss - ablations!
-
-# # # atteprompt
-# # python -u run.py --config $CONFIG_VIT_P_ATTb --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-# #     --learner_type prompt --learner_name DualPrompt \
-# #     --prompt_param 100 20 1 3 \
-# #     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_prompt-basis-lowrank
-
-# # atteprompt
-# python -u run.py --config $CONFIG_VIT_P_ATTb --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPromptKD \
-#     --prompt_param 100 20 1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_prompt-basis-lowrank
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # atteprompt
+# # ablate attention
+# MU=
 # python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 50 20 -1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_ablate-att
-
-# # atteprompt
-# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 100 20 1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_big
-
-# # atteprompt
-# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 50 10 1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_small
-
-# # atteprompt
-# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 50 6 1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_tiny
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 1 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho1
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 2 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho2
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 7 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho7
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 3 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho3
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 4 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho4
-
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 55 20 6 3 \
-#     --log_dir ${OUTDIR}/vit/l2p_freeze-expand_attention_ortho6
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # dual prompt
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 10 20 6 -1 \
-#     --log_dir ${OUTDIR}/vit/dual-prompt
-
-# # dual prompt
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 5 220 6 -1 \
-#     --log_dir ${OUTDIR}/vit/dual-prompt-big
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# # dual prompt
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 10 20 6 2 \
-#     --log_dir ${OUTDIR}/vit/dual-prompt_all-e
-
-# # dual prompt
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 10 20 6 1 \
-#     --log_dir ${OUTDIR}/vit/dual-prompt_no-g
-
-# # # dual prompt
-# # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-# #     --learner_type prompt --learner_name DualPrompt \
-# #     --prompt_param 10 20 6 -1 \
-# #     --log_dir ${OUTDIR}/vit/dual-prompt
+#     --prompt_param 100 20 1 3 --mu $MU \
+#     --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
 
 # # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name L2P \
-#     --prompt_param 18 6 1 -1 \
+#     --prompt_param 100 20 1 -1 \
 #     --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # # l2p
@@ -296,6 +75,24 @@ python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory
 #     --learner_type prompt --learner_name L2P \
 #     --prompt_param 30 20 -1 -1  \
 #     --log_dir ${OUTDIR}/vit/l2p
+
+# # dual prompt
+# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#     --learner_type prompt --learner_name DualPrompt \
+#     --prompt_param 10 20 6 -1 \
+#     --log_dir ${OUTDIR}/vit/dual-prompt
+
+
+
+
+
+
+
+
+
+
+
+
     
 # # # linear only
 # # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

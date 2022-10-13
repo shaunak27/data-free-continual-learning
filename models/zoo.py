@@ -8,17 +8,17 @@ from .vit import VisionTransformer
 import numpy as np
 import math
 
-# def ortho_penalty(t):
-#     return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean() * 1e-6
+def ortho_penalty(t):
+    return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean() * 1e-6
 
 def tensor_prompt(a, b, c=None, ortho=False):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
     else:
         p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
-    nn.init.uniform_(p)
+    # nn.init.uniform_(p)
     # nn.init.zeros_(p)
-
+    nn.init.orthogonal_(p)
     return p
 
 # class HLoss(nn.Module):
@@ -63,7 +63,7 @@ class DualPrompt(nn.Module):
                 e_l = 6
             else:
                 e_l = self.e_p_length
-            p = tensor_prompt(e_l, self.e_pool_size, emb_d)
+            p = tensor_prompt(self.e_pool_size, e_l, emb_d)
             k = tensor_prompt(self.e_pool_size, self.key_d)
             a = tensor_prompt(self.e_pool_size, self.key_d)
             setattr(self, f'e_p_{e}',p)
@@ -103,29 +103,29 @@ class DualPrompt(nn.Module):
             p = getattr(self,f'e_p_{l}')
             if self.expand_and_freeze:
                 
-                # freeze/control past tasks
-                pt = int(self.e_pool_size / (self.n_tasks))
-                s = int(self.task_count_f * pt)
-                f = int((self.task_count_f + 1) * pt)
-                # pt = int(self.e_pool_size / (self.n_tasks + 1))
-                # if self.task_count_f == 0:
-                #     s = 0
-                # else:
-                #     s = int(self.task_count_f * pt) + pt
-                # f = int((self.task_count_f + 1) * pt) + pt
+                # # freeze/control past tasks
+                # pt = int(self.e_pool_size / (self.n_tasks))
+                # s = int(self.task_count_f * pt)
+                # f = int((self.task_count_f + 1) * pt)
+                pt = int(self.e_pool_size / (self.n_tasks * 2))
+                if self.task_count_f == 0:
+                    s = 0
+                else:
+                    s = int(self.e_pool_size / 2) + int(self.task_count_f * pt)
+                f = int(self.e_pool_size / 2) + int((self.task_count_f + 1) * pt)
                 if train:
                     if self.task_count_f > 0:
                         K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
                         A = torch.cat((A[:s].detach().clone(),A[s:f]), dim=0)
-                        p = torch.cat((p[:,:s].detach().clone(),p[:,s:f]), dim=1)
+                        p = torch.cat((p[:s].detach().clone(),p[s:f]), dim=0)
                     else:
                         K = K[s:f]
                         A = A[s:f]
-                        p = p[:,s:f]
+                        p = p[s:f]
                 else:
                     K = K[0:f]
                     A = A[0:f]
-                    p = p[:,0:f]
+                    p = p[0:f]
 
             if self.ortho_mu < 0:
                 ##########
@@ -135,9 +135,9 @@ class DualPrompt(nn.Module):
                 n_K = nn.functional.normalize(K, dim=1)
                 q = nn.functional.normalize(x_querry, dim=1)
                 aq_k_p = torch.einsum('bd,kd->bk', q, n_K)
-                aq_k = nn.functional.softmax(aq_k_p,dim=1)
+                # aq_k = nn.functional.softmax(aq_k_p,dim=1)
                 # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-                P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+                P_ = torch.einsum('bk,kld->bld', aq_k, p)
 
             else:
                 ##########
@@ -151,7 +151,7 @@ class DualPrompt(nn.Module):
                 aq_k = torch.einsum('bkd,kd->bk', q, n_K)
                 # aq_k = nn.functional.softmax(aq_k_p,dim=1)
                 # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
-                P_ = torch.einsum('bk,lkd->bld', aq_k, p)
+                P_ = torch.einsum('bk,kld->bld', aq_k, p)
 
             # if not train and DEBUG_METRICS:
             #     print(aq_k[0:5])
@@ -173,6 +173,26 @@ class DualPrompt(nn.Module):
             Ev = P_[:,i:,:]
 
             loss = 0
+            if train:
+                K = getattr(self,f'e_k_{l}')
+                A = getattr(self,f'e_a_{l}')
+                p = getattr(self,f'e_p_{l}')
+                if self.task_count_f > 0:
+                    K = torch.cat((K[:s].detach().clone(),K[s:]), dim=0)
+                    A = torch.cat((A[:s].detach().clone(),A[s:]), dim=0)
+                    p = torch.cat((p[:s].detach().clone(),p[s:]), dim=0)
+                else:
+                    K = K[s:]
+                    A = A[s:]
+                    p = p[s:]
+                loss = ortho_penalty(K)
+                loss += ortho_penalty(A)
+                loss += ortho_penalty(p.flatten(start_dim=1,end_dim=2))
+            # if not train:
+            #     print(loss)
+            #     # print(apple)
+
+
             # if self.ortho_mu > 0:
             #     if self.ortho_mu == 1:
             #         loss = ortho_penalty(K)

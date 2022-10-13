@@ -1,12 +1,12 @@
 dataset: ImageNet_R
-first_split_size: 20
-other_split_size: 20
+first_split_size: 10
+other_split_size: 10
 schedule:
-- 50
+- 30
 schedule_type: decay
 batch_size: 64
 optimizer: Adam
-lr: 0.0001
+lr: 0.0005
 momentum: 0.9
 weight_decay: 0
 model_type: zoo

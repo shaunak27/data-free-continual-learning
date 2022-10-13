@@ -85,7 +85,7 @@ if __name__ == '__main__':
     with open(args.log_dir + '/args.yaml', 'w') as yaml_file:
         yaml.dump(vars(args), yaml_file, default_flow_style=False)
     
-    metric_keys = ['acc','aux_task','mem','time','plastic','til','cka']
+    metric_keys = ['acc','mem','time','plastic','til','cka']
     save_keys = ['global', 'pt', 'pt-local']
     global_only = ['mem','time','plastic','til','cka']
     avg_metrics = {}

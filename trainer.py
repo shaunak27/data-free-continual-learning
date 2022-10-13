@@ -191,13 +191,16 @@ class Trainer:
         embedding = self.learner.visualization(test_loader, vis_dir, name, t_index, embedding)
         return embedding
 
-    def task_eval(self, t_index, local=False, task='acc'):
+    def task_eval(self, t_index, local=False, task='acc', all_tasks=False):
 
         val_name = self.task_names[t_index]
         print('validation split name:', val_name)
         
         # eval
-        self.test_dataset.load_dataset(t_index, train=True)
+        if all_tasks:
+            self.test_dataset.load_dataset(t_index, train=False)
+        else:
+            self.test_dataset.load_dataset(t_index, train=True)
         test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
         if local:
             return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local)
@@ -313,9 +316,8 @@ class Trainer:
             self.reset_cluster_labels = True
             for j in range(i+1):
                 acc_table.append(self.task_eval(j))
-                acc_table_ssl.append(self.task_eval(j, task='aux_task'))
-            temp_table['acc'].append(np.mean(np.asarray(acc_table)))
-            temp_table['aux_task'].append(np.mean(np.asarray(acc_table_ssl)))
+            # temp_table['acc'].append(np.mean(np.asarray(acc_table)))
+            temp_table['acc'].append(self.task_eval(i, all_tasks=True))
             temp_table['mem'].append(self.learner.count_memory(self.dataset_size))
 
             # save temporary results
@@ -337,7 +339,7 @@ class Trainer:
 
         return avg_metrics 
     
-    def summarize_acc(self, acc_dict, acc_table, acc_table_pt):
+    def summarize_acc(self, acc_dict, acc_table, acc_table_pt, final_acc):
 
         # unpack dictionary
         avg_acc_all = acc_dict['global']
@@ -358,7 +360,8 @@ class Trainer:
             avg_acc_history[i] = cls_acc_sum / (i + 1)
 
         # Gather the final avg accuracy
-        avg_acc_all[:,self.seed] = avg_acc_history
+        # avg_acc_all[:,self.seed] = avg_acc_history
+        avg_acc_all[:,self.seed] = np.asarray(final_acc)
 
         # repack dictionary and return
         return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local}
@@ -370,6 +373,7 @@ class Trainer:
         # store results
         metric_table = {}
         metric_table_local = {}
+        final_acc = []
         for mkey in self.metric_keys:
             metric_table[mkey] = {}
             metric_table_local[mkey] = {}
@@ -403,16 +407,9 @@ class Trainer:
                 val_name = self.task_names[j]
                 metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
 
-            # evaluate aux_task
-            metric_table['aux_task'][self.task_names[i]] = OrderedDict()
-            metric_table_local['aux_task'][self.task_names[i]] = OrderedDict()
-            for j in range(i+1):
-                val_name = self.task_names[j]
-                metric_table['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, task='aux_task')
-                metric_table_local['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, local=True, task='aux_task')
+            final_acc.append(self.task_eval(i, all_tasks=True))
 
         # summarize metrics
-        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'])
-        avg_metrics['aux_task'] = self.summarize_acc(avg_metrics['aux_task'], metric_table['aux_task'],  metric_table_local['aux_task'])
+        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
 
         return avg_metrics
