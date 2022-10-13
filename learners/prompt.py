@@ -28,118 +28,9 @@ class DualPrompt(LWF):
     def __init__(self, learner_config):
         self.prompt_param = learner_config['prompt_param']
         super(DualPrompt, self).__init__(learner_config)
-        
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
-        
-        # L2 from the start
-        if self.init_task_param_reg: self.accumulate_block_memory(train_loader)
-
-        # try to load model
-        need_train = True
-        # if not self.overwrite or self.task_count == 0:
-        if True:
-            try:
-                self.load_model(model_save_dir)
-                need_train = False
-            except:
-                pass
-
-        # trains
-        if need_train:
-            if self.reset_optimizer:  # Reset optimizer before learning each task
-                self.log('Optimizer is reset!')
-                self.init_optimizer()
-
-            # data weighting
-            self.data_weighting(train_dataset)
-            
-            # Evaluate the performance of current task
-            self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=0,total=self.config['schedule'][-1]))
-            if val_loader is not None:
-                self.validation(val_loader)
-        
-            losses = [AverageMeter() for l in range(3)]
-            acc = AverageMeter()
-            batch_time = AverageMeter()
-            batch_timer = Timer()
-            for epoch in range(self.config['schedule'][-1]):
-                self.epoch=epoch
-
-                if epoch > 0: self.scheduler.step()
-                for param_group in self.optimizer.param_groups:
-                    self.log('LR:', param_group['lr'])
-                batch_timer.tic()
-
-
-                for i, (x, y, task)  in enumerate(train_loader):
-                    self.step = i
-
-                    # verify in train mode
-                    self.model.train()
-
-                    # send data to gpu
-                    if self.gpu:
-                        x = x.cuda()
-                        y = y.cuda()
-
-                    # model update - training data
-                    loss, loss_class, loss_distill, output= self.update_model(x, y)
-
-                    # measure elapsed time
-                    batch_time.update(batch_timer.toc()) 
-
-                    # measure accuracy and record loss
-                    y = y.detach()
-                    accumulate_acc(output, y, task, acc, topk=(self.top_k,))
-                    losses[0].update(loss,  y.size(0)) 
-                    losses[1].update(loss_class,  y.size(0)) 
-                    losses[2].update(loss_distill,  y.size(0)) 
-                    batch_timer.tic()
-
-                # eval update
-                self.log('Epoch:{epoch:.0f}/{total:.0f}'.format(epoch=self.epoch+1,total=self.config['schedule'][-1]))
-                self.log(' * Loss {loss.avg:.3f} | Train Acc {acc.avg:.3f}'.format(loss=losses[0],acc=acc))
-                self.log(' * Class Loss {loss.avg:.3f} | KD Loss {lossb.avg:.3f}'.format(loss=losses[1],lossb=losses[2]))
-
-                # Evaluate the performance of current task
-                if val_loader is not None:
-                    if self.task_count > 0:
-                        # print('******* PAST *******')
-                        self.validation(val_loader, task_in = np.arange(self.last_valid_out_dim).tolist(), task_global=True)
-                        # print('******* NEW *******')
-                        self.validation(val_loader, task_in = np.arange(self.last_valid_out_dim,self.valid_out_dim).tolist(), task_global=True)
-                        # print('******* GLOBAL *******')
-                    self.validation(val_loader)
-
-                # reset
-                losses = [AverageMeter() for l in range(3)]
-                acc = AverageMeter()
-
-        self.model.eval()
-
-        self.past_tasks.append(np.arange(self.last_valid_out_dim,self.valid_out_dim))
-        self.last_last_valid_out_dim = self.last_valid_out_dim
-        self.last_valid_out_dim = self.valid_out_dim
-        self.first_task = False
-
-        # Extend memory
-        self.task_count += 1
-        if self.memory_size > 0:
-            train_dataset.update_coreset(self.memory_size, np.arange(self.last_valid_out_dim))
-
-        # new teacher
-        self.replay = True
-        
-        # prepare dataloaders for block replay methods
-        self.accumulate_block_memory(train_loader)
-
-        try:
-            return batch_time.avg
-        except:
-            return None
 
     # update model - add dual prompt loss
-    def update_model(self, inputs, targets):
+    def update_model_old(self, inputs, targets, target_KD = None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True)
@@ -164,6 +55,34 @@ class DualPrompt(LWF):
 
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
 
+    # update model - add dual prompt loss   
+    def update_model(self, inputs, targets, target_KD = None):
+
+        # logits
+        pen, prompt_loss = self.model(inputs, train=True, pen=True)
+        if len(self.config['gpuid']) > 1:
+            logits_new = self.model.module.last(pen)
+        else:
+            logits_new = self.model.last(pen)
+        
+        if target_KD is not None:
+            logits = logits_new[:,self.last_valid_out_dim:self.valid_out_dim]
+            target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        else:
+            logits = logits_new[:,:self.valid_out_dim]
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        
+        # ce loss
+        total_loss = total_loss + prompt_loss.sum()
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
 
     # sets model optimizers
     def init_optimizer(self):
@@ -216,6 +135,47 @@ class DualPrompt(LWF):
         if len(self.config['gpuid']) > 1:
             self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
         return self
+
+class DualPromptKD(DualPrompt):
+
+    def __init__(self, learner_config):
+        self.prompt_param = learner_config['prompt_param']
+        super(DualPromptKD, self).__init__(learner_config)
+
+    # update model - add dual prompt loss   
+    def update_model(self, inputs, targets, target_KD = None):
+
+        # logits
+        pen, prompt_loss = self.model(inputs, train=True, pen=True)
+        if len(self.config['gpuid']) > 1:
+            logits_new = self.model.module.last(pen)
+        else:
+            logits_new = self.model.last(pen)
+        
+        if target_KD is not None:
+            logits_old = self.previous_linear(pen)
+            logits = torch.cat((logits_old[:,:self.last_valid_out_dim], logits_new[:,self.last_valid_out_dim:self.valid_out_dim]),dim=1)
+        else:
+            logits = logits_new[:,:self.valid_out_dim]
+        
+        # class loss      
+        if target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        else:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+
+        # ce loss
+        total_loss = total_loss + prompt_loss.sum()
+
+        # step
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
 
 class L2P(DualPrompt):
 

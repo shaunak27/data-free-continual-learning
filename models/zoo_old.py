@@ -52,11 +52,6 @@ class DualPrompt(nn.Module):
         self.e_layers = [3,4,5]
 
         # prompt pool size
-        if prompt_param[3] == 1:
-            self.g_layers = []
-        if prompt_param[3] == 2:
-            self.g_layers = []
-            self.e_layers = [0,1,2,3,4,5]
         self.g_p_length = prompt_param[2]
         self.e_p_length = prompt_param[1]
         self.e_pool_size = prompt_param[0]
@@ -183,7 +178,7 @@ class L2P(DualPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:
-            self.e_layers = [0,1,2,3,4,5]
+            self.e_layers = [0,1,3,4,5]
         else:
             self.e_layers = [0]
 
@@ -249,14 +244,12 @@ class ResNetZoo(nn.Module):
             out, _ = self.feat(x)
             out = out[:,0,:]
         out = out.view(out.size(0), -1)
-        if pen:
-            return out
-        else:
+        if not pen:
             out = self.last(out)
-            if self.prompt is not None and train:
-                return out, prompt_loss
-            else:
-                return out
-
+        if self.prompt is not None and train:
+            return out, prompt_loss
+        else:
+            return out
+            
 def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
     return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param)

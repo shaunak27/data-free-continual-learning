@@ -272,7 +272,7 @@ for same_plot in [True, False]:
                     # axis and stuff
                     if acc_flag:
                         plt.yticks(np.arange(-10, 110, 10),fontsize=14)
-                        miny=min(20,np.floor(np.amin(np.asarray(y_plot))/10)*10)
+                        miny=min(60,np.floor(np.amin(np.asarray(y_plot))/10)*10)
                         maxy=max(101,np.ceil(np.amax(np.asarray(y_plot))/10)*10)
                         plt.ylim(int(miny),int(maxy))
                         # plt.ylim(np.floor(np.amin(np.asarray(y_plot))/10)*10, np.ceil(np.amax(np.asarray(y_plot))/10)*10)
@@ -310,6 +310,7 @@ for same_plot in [True, False]:
                     #             tick_x_s.append(str(tick))
                     #         else:
                     #             tick_x_s.append('')
+                    if mindex > 0: plt.ylim(0,10)
                     tick_x = [10,20,30,40,50,60,70,80,90,100]
                     tick_x_s = [1,2,3,4,5,6,7,8,9,10]
                     plt.xticks(tick_x, tick_x_s,fontsize=14)

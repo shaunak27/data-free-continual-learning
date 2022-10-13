@@ -7,39 +7,7 @@ from torch.autograd import Variable
 from .vit import VisionTransformer
 import numpy as np
 import math
-
-# def ortho_penalty(t):
-#     return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean() * 1e-6
-
-def tensor_prompt(a, b, c=None, ortho=False):
-    if c is None:
-        p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
-    else:
-        p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
-    nn.init.uniform_(p)
-    # nn.init.zeros_(p)
-
-    return p
-
-# class HLoss(nn.Module):
-#     def __init__(self):
-#         super(HLoss, self).__init__()
-
-#     def forward(self, x):
-#         b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
-#         b = -1.0 * b.sum(dim=1).mean()
-#         return b
-
-# class DLoss(nn.Module):
-#     def __init__(self):
-#         super(DLoss, self).__init__()
-
-#     def forward(self, x):
-#         b = F.softmax(x,dim=1).mean(dim=0) 
-#         # loss = 1.0 + (b * torch.log(b) / math.log(x.size(1))).sum()
-#         a = b.mean()
-#         loss = torch.abs(a - b).mean()
-#         return loss
+from yc.models.adapters.adapter_compacter import HyperComplexAdapter, LowRankAdapter
 
 DEBUG_METRICS=True
 
@@ -53,8 +21,6 @@ class DualPrompt(nn.Module):
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
         self.counter = 0
-        # self.h_loss = HLoss()
-        # self.d_loss = DLoss()
 
         # e prompt init
         if DEBUG_METRICS: self.metrics = {'attention':{},'keys':{}}
@@ -63,9 +29,16 @@ class DualPrompt(nn.Module):
                 e_l = 6
             else:
                 e_l = self.e_p_length
-            p = tensor_prompt(e_l, self.e_pool_size, emb_d)
-            k = tensor_prompt(self.e_pool_size, self.key_d)
-            a = tensor_prompt(self.e_pool_size, self.key_d)
+            config = {
+                input_dim: self.e_pool_size,
+                output_dim: self.key_d,
+                reduction_factor: 2,
+                low_rank_rank: -16,
+            }
+            k = LowRankAdapter(config)
+            a = LowRankAdapter(config)
+            config[output_dim] = self.emb_d * e_l
+            p = LowRankAdapter(config)
             setattr(self, f'e_p_{e}',p)
             setattr(self, f'e_k_{e}',k)
             setattr(self, f'e_a_{e}',a)
@@ -101,18 +74,14 @@ class DualPrompt(nn.Module):
             K = getattr(self,f'e_k_{l}')
             A = getattr(self,f'e_a_{l}')
             p = getattr(self,f'e_p_{l}')
+
+            torch.ones()
             if self.expand_and_freeze:
                 
                 # freeze/control past tasks
                 pt = int(self.e_pool_size / (self.n_tasks))
                 s = int(self.task_count_f * pt)
                 f = int((self.task_count_f + 1) * pt)
-                # pt = int(self.e_pool_size / (self.n_tasks + 1))
-                # if self.task_count_f == 0:
-                #     s = 0
-                # else:
-                #     s = int(self.task_count_f * pt) + pt
-                # f = int((self.task_count_f + 1) * pt) + pt
                 if train:
                     if self.task_count_f > 0:
                         K = torch.cat((K[:s].detach().clone(),K[s:f]), dim=0)
@@ -152,17 +121,6 @@ class DualPrompt(nn.Module):
                 # aq_k = nn.functional.softmax(aq_k_p,dim=1)
                 # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
                 P_ = torch.einsum('bk,lkd->bld', aq_k, p)
-
-            # if not train and DEBUG_METRICS:
-            #     print(aq_k[0:5])
-            #     self.metrics['keys'][l][0:f] = aq_k.sum(dim=0).detach().cpu()
-            #     if self.counter == 5:
-            #         print('**********')
-            #         print('l = ' + str(l))
-            #         print(self.metrics['keys'][l])
-            #         self.counter = 0
-            #         if self.task_count_f == 1: print(apple)
-            #     self.counter += 1
              
             # select prompts
             if l < 2:
@@ -173,51 +131,7 @@ class DualPrompt(nn.Module):
             Ev = P_[:,i:,:]
 
             loss = 0
-            # if self.ortho_mu > 0:
-            #     if self.ortho_mu == 1:
-            #         loss = ortho_penalty(K)
-
-            #     elif self.ortho_mu == 2:
-            #         loss = ortho_penalty(A)
-
-            #     elif self.ortho_mu == 3:
-            #         loss = ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 4:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 5:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(A)
-
-            #     elif self.ortho_mu == 6:
-            #         loss = ortho_penalty(A)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 7:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(A)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-            #     else:
-            #         print(fuk)
-            # else:
-            #     loss = 0
-            # if train and self.ortho_mu > 0 and self.task_count_f > 0:
-            #     loss = aq_k[:,s:f].mean()
-            # if not train and l == 0:
-            #     print(aq_k[0:3])
-            #     print(aq_k[-3:])
-            #     print(aq_k.sum(dim=0))
-            #     print('**********')
-            # if train and self.ortho_mu > 0:
-            #     # loss = self.h_loss(aq_k[:,0:f])
-            #     # loss += self.d_loss(aq_k[:,0:f])
-            #     max_ind = torch.argmax(aq_k,dim=1)
-            #     loss = (1 - aq_k[max_ind]).mean()
-            # else:
-            #     loss = 0
-
+ 
         else:
             loss = 0
 
