@@ -21,40 +21,17 @@ def tensor_prompt(a, b, c=None, ortho=False):
     nn.init.orthogonal_(p)
     return p
 
-# class HLoss(nn.Module):
-#     def __init__(self):
-#         super(HLoss, self).__init__()
-
-#     def forward(self, x):
-#         b = F.softmax(x, dim=1) * F.log_softmax(x, dim=1)
-#         b = -1.0 * b.sum(dim=1).mean()
-#         return b
-
-# class DLoss(nn.Module):
-#     def __init__(self):
-#         super(DLoss, self).__init__()
-
-#     def forward(self, x):
-#         b = F.softmax(x,dim=1).mean(dim=0) 
-#         # loss = 1.0 + (b * torch.log(b) / math.log(x.size(1))).sum()
-#         a = b.mean()
-#         loss = torch.abs(a - b).mean()
-#         return loss
-
 DEBUG_METRICS=True
-
 class DualPrompt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
         super().__init__()
         self.task_count_f = 0
         self.emb_d = emb_d
         self.key_d = key_dim
-        self.expand_and_freeze = False
+        self.expand_and_freeze = True
         self.n_tasks = n_tasks
         self._init_smart(emb_d, prompt_param)
         self.counter = 0
-        # self.h_loss = HLoss()
-        # self.d_loss = DLoss()
 
         # e prompt init
         if DEBUG_METRICS: self.metrics = {'attention':{},'keys':{}}
@@ -77,10 +54,10 @@ class DualPrompt(nn.Module):
         self.task_id_bootstrap = False
 
         # prompt locations
-        self.e_layers = [0,1,3,4,5]
-
-        if prompt_param[3] == 3:
-            self.expand_and_freeze = True
+        if prompt_param[3] > 0:
+            self.e_layers = [0,1,3,4,5]
+        else:
+            self.e_layers = [3]
 
         # prompt pool size
         self.e_p_length = prompt_param[1]
@@ -152,18 +129,7 @@ class DualPrompt(nn.Module):
                 # aq_k = nn.functional.softmax(aq_k_p,dim=1)
                 # (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
                 P_ = torch.einsum('bk,kld->bld', aq_k, p)
-
-            # if not train and DEBUG_METRICS:
-            #     print(aq_k[0:5])
-            #     self.metrics['keys'][l][0:f] = aq_k.sum(dim=0).detach().cpu()
-            #     if self.counter == 5:
-            #         print('**********')
-            #         print('l = ' + str(l))
-            #         print(self.metrics['keys'][l])
-            #         self.counter = 0
-            #         if self.task_count_f == 1: print(apple)
-            #     self.counter += 1
-             
+      
             # select prompts
             if l < 2:
                 i = int(6/2)
@@ -188,56 +154,6 @@ class DualPrompt(nn.Module):
                 loss = ortho_penalty(K)
                 loss += ortho_penalty(A)
                 loss += ortho_penalty(p.flatten(start_dim=1,end_dim=2))
-            # if not train:
-            #     print(loss)
-            #     # print(apple)
-
-
-            # if self.ortho_mu > 0:
-            #     if self.ortho_mu == 1:
-            #         loss = ortho_penalty(K)
-
-            #     elif self.ortho_mu == 2:
-            #         loss = ortho_penalty(A)
-
-            #     elif self.ortho_mu == 3:
-            #         loss = ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 4:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 5:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(A)
-
-            #     elif self.ortho_mu == 6:
-            #         loss = ortho_penalty(A)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-
-            #     elif self.ortho_mu == 7:
-            #         loss = ortho_penalty(K)
-            #         loss += ortho_penalty(A)
-            #         loss += ortho_penalty(p.permute((1,0,2)).flatten(start_dim=1,end_dim=2)) / 20
-            #     else:
-            #         print(fuk)
-            # else:
-            #     loss = 0
-            # if train and self.ortho_mu > 0 and self.task_count_f > 0:
-            #     loss = aq_k[:,s:f].mean()
-            # if not train and l == 0:
-            #     print(aq_k[0:3])
-            #     print(aq_k[-3:])
-            #     print(aq_k.sum(dim=0))
-            #     print('**********')
-            # if train and self.ortho_mu > 0:
-            #     # loss = self.h_loss(aq_k[:,0:f])
-            #     # loss += self.d_loss(aq_k[:,0:f])
-            #     max_ind = torch.argmax(aq_k,dim=1)
-            #     loss = (1 - aq_k[max_ind]).mean()
-            # else:
-            #     loss = 0
-
         else:
             loss = 0
 

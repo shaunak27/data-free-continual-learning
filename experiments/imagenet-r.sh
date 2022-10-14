@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=oct_15b
+DATE=oct_16
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -29,70 +29,66 @@ fi
 mkdir -p $OUTDIR
 
 
-
-
-
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 100 20 1 3 --mu 0 \
+    --prompt_param 100 20 1 1 --mu 0 \
     --log_dir ${OUTDIR}/vit/atteprompt_mu-0
 
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 100 20 1 3 --mu 1 \
+    --prompt_param 100 20 1 1 --mu 1 \
     --log_dir ${OUTDIR}/vit/atteprompt_mu-1
 
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 100 20 1 3 --mu 10 \
+    --prompt_param 100 20 1 1 --mu 10 \
     --log_dir ${OUTDIR}/vit/atteprompt_mu-10
 
 # atteprompt
 python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 100 20 1 3 --mu 0.1 \
+    --prompt_param 100 20 1 1 --mu 0.1 \
     --log_dir ${OUTDIR}/vit/atteprompt_mu-0.1
 
 
-# # ablate attention
+
 # MU=
+# # ablate attention
 # python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 100 20 1 3 --mu $MU \
+#     --prompt_param 100 20 -1 1 --mu $MU \
+#     --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
+# # small
+# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#     --learner_type prompt --learner_name DualPrompt \
+#     --prompt_param 40 15 1 -1 --mu $MU \
 #     --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
 
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name L2P \
-#     --prompt_param 100 20 1 -1 \
-#     --log_dir ${OUTDIR}/vit/l2p_multi-layer
+# l2p
+python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
-# # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name L2P \
-#     --prompt_param 30 20 -1 -1  \
-#     --log_dir ${OUTDIR}/vit/l2p
+# l2p
+python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 30 20 -1 -1  \
+    --log_dir ${OUTDIR}/vit/l2p
 
-# # dual prompt
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 10 20 6 -1 \
-#     --log_dir ${OUTDIR}/vit/dual-prompt
-
-
+# dual prompt
+python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name DualPrompt \
+    --prompt_param 10 20 6 -1 \
+    --log_dir ${OUTDIR}/vit/dual-prompt
 
 
-
-
-
-
-
-
-
-
+###############
+#    OLDIES   #
+###############
     
 # # # linear only
 # # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
