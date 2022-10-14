@@ -9,7 +9,6 @@ from utils.metric import accuracy, AverageMeter, Timer
 import numpy as np
 import scipy as sp
 import scipy.linalg as linalg
-from models.layers import CosineScaling
 from utils.visualization import tsne_eval, confusion_matrix_vis, pca_eval
 from torch.optim import Optimizer
 import contextlib
@@ -34,12 +33,7 @@ class LWF(NormalNN):
         self.first_task = True
         self.first_block = True
         self.ce_loss = nn.BCELoss()
-        self.ce_loss_balanced = nn.BCELoss(reduction='none')
-        self.ce_loss_scale = 5
-        self.init_task_param_reg = False
-        self.ft_flag = False
-        self.playground_flag = self.config['playground_flag']
-        self.balanced_bce = self.config['balanced_bce']
+        self.init_task_param_reg = self.eps > 0
 
     def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
         
@@ -82,11 +76,6 @@ class LWF(NormalNN):
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch=epoch
 
-                # fine-tuning
-                if self.ft_flag and epoch == self.config['schedule'][0]:
-                    self.log('Optimizer is reset!')
-                    self.init_optimizer(tune_all=True)
-
                 if epoch > 0: self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])
@@ -101,18 +90,18 @@ class LWF(NormalNN):
 
                     # send data to gpu
                     if self.gpu:
-                        x = [x[k].cuda() for k in range(len(x))]
+                        x = x.cuda()
                         y = y.cuda()
                     
                     # if KD
-                    if self.KD and self.replay:
+                    if self.replay:
                         allowed_predictions = list(range(self.last_valid_out_dim))
-                        y_hat, _ = self.previous_teacher.generate_scores(x[0], allowed_predictions=allowed_predictions)
+                        y_hat, _ = self.previous_teacher.generate_scores(x, allowed_predictions=allowed_predictions)
                     else:
                         y_hat = None
 
                     # model update - training data
-                    loss, loss_class, loss_distill, output= self.update_model(x[0], y, y_hat)
+                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc()) 
@@ -187,7 +176,7 @@ class LWF(NormalNN):
         total_loss += loss_class
 
         # KD
-        if self.KD and target_KD is not None:
+        if target_KD is not None:
             dw_KD = self.dw_k[-1 * torch.ones(len(target_KD),).long()]
             logits_KD = logits
             loss_distill = loss_fn_kd(logits_KD, target_KD, dw_KD, np.arange(self.last_valid_out_dim).tolist(), self.DTemp)
@@ -209,10 +198,6 @@ class LWF(NormalNN):
         return x, y
 
     ##########################################
-    #             MODEL EVAL                 #
-    ##########################################
-
-    ##########################################
     #             MODEL UTILS                #
     ##########################################
 
@@ -231,47 +216,18 @@ class LWF_MC(LWF):
         
 
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)
 
-        # class loss
-        if self.balanced_bce:
-            if self.KD and target_KD is not None:
-                # tasks
-                task_n = np.arange(self.last_valid_out_dim,self.valid_out_dim)
-                task_p = np.arange(0,self.last_valid_out_dim)
-                task_all = np.arange(0,self.valid_out_dim)
-
-                # new task loss
-                new_dim = self.valid_out_dim - self.last_valid_out_dim
-                target_hot = get_one_hot(targets-self.last_valid_out_dim, new_dim)
-                total_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_n]), target_hot)
-                target_map = (target_hot * (new_dim-1) + 1) / (new_dim)
-                total_loss = total_loss * target_map
-                total_loss = total_loss.mean() * (new_dim*2.0) / (1.0+(1.0/new_dim))
-
-                # old task loss
-                new_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_p]),torch.sigmoid(target_KD)).mean()
-                total_loss = total_loss*(new_dim/self.valid_out_dim) + new_loss*(self.valid_out_dim-new_dim)/(self.valid_out_dim)
-
-            else:
-                target_hot = get_one_hot(targets, self.valid_out_dim)
-                total_loss = self.ce_loss_balanced(torch.sigmoid(logits), target_hot)
-                target_map = (target_hot * (self.valid_out_dim-1) + 1) / (self.valid_out_dim)
-                total_loss = total_loss * target_map
-                total_loss = total_loss.mean() * (self.valid_out_dim*2.0) / (1.0+(1.0/self.valid_out_dim))
-        else:        
-            if self.KD and target_KD is not None:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
-            else:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
+        # class loss      
+        if target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
+        else:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
 
         self.optimizer.zero_grad()
         total_loss.backward()
@@ -286,69 +242,18 @@ class LWF_MC_FEATKD(LWF):
         
 
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)
 
         # class loss
-        if self.playground_flag:
-            if self.DTemp == -1:
-                target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
-                total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod)*self.ce_loss_scale
-            elif self.DTemp == -2:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
-            elif self.DTemp == -3:
-                dw_cls = torch.ones(targets.size()).long().cuda()
-                total_loss = self.criterion(logits, targets.long(), dw_cls)
-            elif self.DTemp == -4:
-                dw_cls = torch.ones(targets.size()).long().cuda()
-                total_loss = self.criterion(logits, targets.long(), dw_cls)
-                if self.KD and target_KD is not None:
-                    dw_KD = torch.ones(targets.size()).long().cuda()
-                    logits_KD = logits
-                    loss_distill = loss_fn_kd(logits_KD, target_KD, dw_KD, np.arange(self.last_valid_out_dim).tolist(), 2)
-                    total_loss = total_loss + loss_distill
-            else:
-                print(apple)
+        if target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
         else:
-            # class loss
-            if self.balanced_bce:
-                if self.KD and target_KD is not None:
-                    # tasks
-                    task_n = np.arange(self.last_valid_out_dim,self.valid_out_dim)
-                    task_p = np.arange(0,self.last_valid_out_dim)
-                    task_all = np.arange(0,self.valid_out_dim)
-
-                    # new task loss
-                    new_dim = self.valid_out_dim - self.last_valid_out_dim
-                    target_hot = get_one_hot(targets-self.last_valid_out_dim, new_dim)
-                    total_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_n]), target_hot)
-                    target_map = (target_hot * (new_dim-1) + 1) / (new_dim)
-                    total_loss = total_loss * target_map
-                    total_loss = total_loss.mean() * (new_dim*2.0) / (1.0+(1.0/new_dim))
-
-                    # old task loss
-                    new_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_p]),torch.sigmoid(target_KD)).mean()
-                    total_loss = total_loss*(new_dim/self.valid_out_dim) + new_loss*(self.valid_out_dim-new_dim)/(self.valid_out_dim)
-
-                else:
-                    target_hot = get_one_hot(targets, self.valid_out_dim)
-                    total_loss = self.ce_loss_balanced(torch.sigmoid(logits), target_hot)
-                    target_map = (target_hot * (self.valid_out_dim-1) + 1) / (self.valid_out_dim)
-                    total_loss = total_loss * target_map
-                    total_loss = total_loss.mean() * (self.valid_out_dim*2.0) / (1.0+(1.0/self.valid_out_dim))
-            else:        
-                if self.KD and target_KD is not None:
-                    target_mod = get_one_hot(targets, self.valid_out_dim)
-                    target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                    total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
-                else:
-                    target_mod = get_one_hot(targets, self.valid_out_dim)
-                    total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
 
         # feature kd loss
         target_feat = self.previous_teacher.generate_scores_pen(inputs)
@@ -366,110 +271,46 @@ class EWC_MC(LWF):
     def __init__(self, learner_config):
         super(EWC_MC, self).__init__(learner_config)
         self.regularization_terms = {}
-        self.l1_loss = torch.nn.L1Loss(reduction='none')
         self.l2_loss = torch.nn.MSELoss(reduction='none')
-        self.l1l2_loss = False
-        self.l2_start_flag = False
         
     def update_model(self, inputs, targets, target_KD = None):
-        
-        # keep BN layers frozen
-        self.model.eval()
 
         # get output
         logits = self.forward(inputs)
 
-        # class loss
-        if self.playground_flag:
-            if self.DTemp == -1:
-                target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
-                total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod)*self.ce_loss_scale
-            elif self.DTemp == -2:
-                target_mod = get_one_hot(targets, self.valid_out_dim)
-                total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
-            elif self.DTemp == -3:
-                dw_cls = torch.ones(targets.size()).long().cuda()
-                total_loss = self.criterion(logits, targets.long(), dw_cls)
-            elif self.DTemp == -4:
-                dw_cls = torch.ones(targets.size()).long().cuda()
-                total_loss = self.criterion(logits, targets.long(), dw_cls)
-                if self.KD and target_KD is not None:
-                    dw_KD = torch.ones(targets.size()).long().cuda()
-                    logits_KD = logits
-                    loss_distill = loss_fn_kd(logits_KD, target_KD, dw_KD, np.arange(self.last_valid_out_dim).tolist(), 2)
-                    total_loss = total_loss + loss_distill
-            else:
-                print(apple)
+        # class loss     
+        if target_KD is not None:
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
         else:
-            # class loss
-            if self.balanced_bce:
-                if self.KD and target_KD is not None:
-                    # tasks
-                    task_n = np.arange(self.last_valid_out_dim,self.valid_out_dim)
-                    task_p = np.arange(0,self.last_valid_out_dim)
-                    task_all = np.arange(0,self.valid_out_dim)
-
-                    # new task loss
-                    new_dim = self.valid_out_dim - self.last_valid_out_dim
-                    target_hot = get_one_hot(targets-self.last_valid_out_dim, new_dim)
-                    total_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_n]), target_hot)
-                    target_map = (target_hot * (new_dim-1) + 1) / (new_dim)
-                    total_loss = total_loss * target_map
-                    total_loss = total_loss.mean() * (new_dim*2.0) / (1.0+(1.0/new_dim))
-
-                    # old task loss
-                    new_loss = self.ce_loss_balanced(torch.sigmoid(logits[:,task_p]),torch.sigmoid(target_KD)).mean()
-                    total_loss = total_loss*(new_dim/self.valid_out_dim) + new_loss*(self.valid_out_dim-new_dim)/(self.valid_out_dim)
-
-                else:
-                    target_hot = get_one_hot(targets, self.valid_out_dim)
-                    total_loss = self.ce_loss_balanced(torch.sigmoid(logits), target_hot)
-                    target_map = (target_hot * (self.valid_out_dim-1) + 1) / (self.valid_out_dim)
-                    total_loss = total_loss * target_map
-                    total_loss = total_loss.mean() * (self.valid_out_dim*2.0) / (1.0+(1.0/self.valid_out_dim))
-            else:        
-                if self.KD and target_KD is not None:
-                    target_mod = get_one_hot(targets, self.valid_out_dim)
-                    target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
-                    total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
-                else:
-                    target_mod = get_one_hot(targets, self.valid_out_dim)
-                    total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)*self.ce_loss_scale
+            target_mod = get_one_hot(targets, self.valid_out_dim)
+            total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
         
         # Calculate the reg_loss only when the regularization_terms exists
-        reg_loss_l1l2 = torch.zeros((1,), requires_grad=True).cuda()
-        reg_loss_l1       = torch.zeros((1,), requires_grad=True).cuda()
-        reg_loss_l2       = torch.zeros((1,), requires_grad=True).cuda()
+        reg_loss_l2 = torch.zeros((1,), requires_grad=True).cuda()
+        reg_loss_ewc = torch.zeros((1,), requires_grad=True).cuda()
         for i,reg_term in self.regularization_terms.items():
-            task_reg_loss_l1l2 = torch.zeros((1,), requires_grad=True).cuda()
-            task_reg_loss_l1       = torch.zeros((1,), requires_grad=True).cuda()
-            task_reg_loss_l2       = torch.zeros((1,), requires_grad=True).cuda()
-            importance_l1 = reg_term['importance_l1']
-            importance_l2 = reg_term['importance_l2']
+            task_reg_loss_l2 = torch.zeros((1,), requires_grad=True).cuda()
+            task_reg_loss_ewc = torch.zeros((1,), requires_grad=True).cuda()
+            importance_ewc = reg_term['importance_ewc']
             task_param = reg_term['task_param']
             for n, p in self.params.items():
 
-                # l1l2 loss
-                if self.l1l2_loss:
-                    if self.eps >= 0:
-                        task_reg_loss_l1l2 += (self.l1_loss(p,task_param[n])).sum()
-                    else:
-                        task_reg_loss_l1l2 += (self.l2_loss(p,task_param[n])).sum()
+                # l2
+                if self.eps > 0:
+                    task_reg_loss_l2 += self.eps * (self.l2_loss(p,task_param[n])).sum()
 
-                # l1 loss
-                l1_loss_unmasked = -1 * (importance_l1[n] * (p - task_param[n])).sum() # sign, is it 1 or -1?
-                if l1_loss_unmasked > 0: task_reg_loss_l1 += l1_loss_unmasked
-
-                # l2 loss
-                task_reg_loss_l2 += (importance_l2[n] * self.l2_loss(p,task_param[n])).sum()
+                # ewc
+                if self.mu > 0:
+                    task_reg_loss_ewc += self.mu * (importance_ewc[n] * self.l2_loss(p,task_param[n])).sum()
             
             # update total losses
-            reg_loss_l1l2 += task_reg_loss_l1l2
-            reg_loss_l1       += task_reg_loss_l1
-            reg_loss_l2       += task_reg_loss_l2
+            reg_loss_l2 += task_reg_loss_l2
+            reg_loss_ewc += task_reg_loss_ewc
         
         # total weighted reg loss
-        loss_reg = (abs(self.eps) * reg_loss_l1l2) + (self.beta * reg_loss_l1) + (0.5 * self.mu * reg_loss_l2)
+        loss_reg = reg_loss_l2 + reg_loss_ewc
         
         # final loss and backprop
         total_loss = total_loss + loss_reg
@@ -483,7 +324,10 @@ class EWC_MC(LWF):
         # Update the diag fisher information
         # There are several ways to estimate the F matrix.
         # We keep the implementation as simple as possible while maintaining a similar performance to the literature.
-        self.params = {n: p for n, p in self.model.feat.named_parameters() if p.requires_grad}
+        if len(self.config['gpuid']) > 1:
+            self.params = {n: p for n, p in self.model.module.feat.named_parameters() if p.requires_grad}
+        else:
+            self.params = {n: p for n, p in self.model.feat.named_parameters() if p.requires_grad}
         self.log('Computing EWC')
 
         # Initialize the imp matrix
@@ -491,27 +335,19 @@ class EWC_MC(LWF):
             self.init_task_param_reg = False
             self.first_block = False
             task_param = {}
-            importance_l1 = {}
-            importance_l2 = {}
+            importance_ewc = {}
             for n, p in self.params.items():
-                importance_l1[n] = p.clone().detach().fill_(0)  # zero initialized
-                importance_l2[n] = p.clone().detach().fill_(0)  # zero initialized
+                importance_ewc[n] = p.clone().detach().fill_(0)  # zero initialized
                 task_param[n] = p.clone().detach()
-            self.regularization_terms['online'] = {'importance_l1':importance_l1, 'importance_l2':importance_l2, 'task_param':task_param}
+            self.regularization_terms['online'] = {'importance_ewc':importance_ewc, 'task_param':task_param}
             return
         elif self.first_block:
             self.first_block = False
-            if self.l2_start_flag:
-                self.l1l2_loss = False
-                self.eps = 0.0
-            importance_l1 = {}
-            importance_l2 = {}
+            importance_ewc = {}
             for n, p in self.params.items():
-                importance_l1[n] = p.clone().detach().fill_(0)  # zero initialized
-                importance_l2[n] = p.clone().detach().fill_(0)  # zero initialized
+                importance_ewc[n] = p.clone().detach().fill_(0)  # zero initialized
         else:
-            importance_l1 = self.regularization_terms['online']['importance_l1']
-            importance_l2 = self.regularization_terms['online']['importance_l2']
+            importance_ewc = self.regularization_terms['online']['importance_ewc']
 
         mode = self.training
         self.eval()
@@ -519,30 +355,17 @@ class EWC_MC(LWF):
         # Accumulate the square of gradients
         for i, (input, target, task) in enumerate(dataloader):
             if self.gpu:
-                input = input[0].cuda()
+                input = input.cuda()
                 target = target.cuda()
 
             pred = self.model.forward(input)[:,:self.valid_out_dim]
             ind = pred.max(1)[1].flatten()  # Choose the one with max
-
-            if self.balanced_bce:
-                new_dim = self.last_valid_out_dim - self.last_last_valid_out_dim
-                target_hot = get_one_hot(target-self.last_last_valid_out_dim, new_dim)
-                loss = self.ce_loss_balanced(torch.sigmoid(pred[:,self.last_last_valid_out_dim:self.last_valid_out_dim]), target_hot)
-                target_map = (target_hot * (new_dim-1) + 1) / (new_dim)
-                loss = loss * target_map
-                loss = loss.mean() * (new_dim*2.0) / (1.0+(1.0/new_dim))
-                loss = loss * self.ce_loss_scale
-            else:
-                target_mod = get_one_hot(target-self.last_last_valid_out_dim, self.valid_out_dim-self.last_last_valid_out_dim)
-                loss = self.ce_loss(torch.sigmoid(pred[:,self.last_last_valid_out_dim:self.last_valid_out_dim]), target_mod)*self.ce_loss_scale
+            target_mod = get_one_hot(target-self.last_last_valid_out_dim, self.valid_out_dim-self.last_last_valid_out_dim)
+            loss = self.ce_loss(torch.sigmoid(pred[:,self.last_last_valid_out_dim:self.last_valid_out_dim]), target_mod)
 
             self.model.zero_grad()
             loss.backward()
-            for n, p in importance_l1.items():
-                if self.params[n].grad is not None:  # Some heads can have no grad if no loss applied on them.
-                    p += ((self.params[n].grad) * len(input) / len(dataloader))
-            for n, p in importance_l2.items():
+            for n, p in importance_ewc.items():
                 if self.params[n].grad is not None:  # Some heads can have no grad if no loss applied on them.
                     p += ((self.params[n].grad ** 2) * len(input) / len(dataloader))
 
@@ -550,28 +373,7 @@ class EWC_MC(LWF):
         task_param = {}
         for n, p in self.params.items():
             task_param[n] = p.clone().detach()
-        self.regularization_terms['online'] = {'importance_l1':importance_l1, 'importance_l2':importance_l2, 'task_param':task_param}
-        
-class EWC_MC_L1L2(EWC_MC):
-
-    def __init__(self, learner_config):
-        super(EWC_MC_L1L2 , self).__init__(learner_config)
-        self.init_task_param_reg = True
-        self.l1l2_loss = True
-
-class EWC_MC_L1L2_b(EWC_MC):
-
-    def __init__(self, learner_config):
-        super(EWC_MC_L1L2_b, self).__init__(learner_config)
-        self.l1l2_loss = True
-
-class EWC_MC_L2START(EWC_MC):
-
-    def __init__(self, learner_config):
-        super(EWC_MC_L2START, self).__init__(learner_config)
-        self.init_task_param_reg = True
-        self.l1l2_loss = True
-        self.l2_start_flag = True
+        self.regularization_terms['online'] = { 'importance_ewc':importance_ewc, 'task_param':task_param}
 
 def get_one_hot(target,num_class):
     one_hot=torch.zeros(target.shape[0],num_class).cuda()

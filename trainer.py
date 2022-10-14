@@ -26,36 +26,14 @@ class Trainer:
         self.log_dir = args.log_dir
         self.batch_size = args.batch_size
         self.workers = args.workers
-
-        # check if VAE normalization is needed
-        if args.learner_type == 'dgr' or args.learner_type == 'dfkd':# or args.learner_type == "deep_inv_gen":
-            self.dgr = True
-        else:
-            self.dgr = False
-
-        # check if external replay data needs loading
-        self.dataset_swap = args.dataset_swap
-        if args.learner_name == 'KD_EXT' or args.learner_name == 'KD_EXT_HARD' or args.learner_name == 'KD_EXT_GDNODE' or args.learner_name == 'KD_EXT_GD':
-            self.ext_data = True
-        else:
-            self.ext_data = False
         
         # model load directory
-        if args.load_model_dir is not None:
-            self.model_first_dir = args.load_model_dir
-        else:
-            self.model_first_dir = args.log_dir
         self.model_top_dir = args.log_dir
 
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        if args.dataset == 'MNIST':
-            Dataset = dataloaders.iMNIST
-            num_classes = 10
-            self.grayscale_vis = True
-            self.dataset_size = [28,28,1]
-        elif args.dataset == 'CIFAR10':
+        if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
             num_classes = 10
             self.dataset_size = [32,32,3]
@@ -76,12 +54,27 @@ class Trainer:
             num_classes = 1000
             self.dataset_size = [224,224,3]
             self.top_k = 5
+        elif args.dataset == 'ImageNet_R':
+            Dataset = dataloaders.iIMAGENET_R
+            num_classes = 200
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
+        elif args.dataset == 'DomainNet':
+            Dataset = dataloaders.iDOMAIN_NET
+            num_classes = 345
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
         elif args.dataset == 'TinyImageNet':
             Dataset = dataloaders.iTinyIMNET
             num_classes = 200
             self.dataset_size = [64,64,3]
         else:
             raise ValueError('Dataset not implemented!')
+
+        # upper bound flag
+        if args.upper_bound_flag:
+            args.other_split_size = num_classes
+            args.first_split_size = num_classes
 
         # load tasks
         class_order = np.arange(num_classes).tolist()
@@ -115,77 +108,20 @@ class Trainer:
         else:
             self.max_task = len(self.task_names)
 
-        # select external dataset (if needed)
-        if self.ext_data or self.dataset_swap:
-            if args.dataset_ext == 'SAME':
-                Dataset_ext  = Dataset
-                tasks_ext = [np.arange(num_classes).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext == 'MNIST':
-                Dataset_ext  = dataloaders.iMNIST
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'CIFAR10':
-                Dataset_ext  = dataloaders.iCIFAR10
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'ImageNet':
-                Dataset_ext  = dataloaders.iIMAGENET
-                tasks_ext = [np.arange(100).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'CIFAR100':
-                Dataset_ext  = dataloaders.iCIFAR100
-                tasks_ext = [np.arange(100).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'KMNIST':
-                Dataset_ext  = dataloaders.iKMNIST
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'SVHN':
-                Dataset_ext  = dataloaders.iSVHN
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'SVHNI':
-                Dataset_ext  = dataloaders.iSVHNI
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'FakeData':
-                Dataset_ext  = dataloaders.iFakeData
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)]
-            elif args.dataset_ext  == 'FashionMNIST':
-                Dataset_ext  = dataloaders.iFashionMNIST
-                tasks_ext = [np.arange(10).tolist() for t in range(self.num_tasks)] 
-            else:
-                raise ValueError('External dataset not implemented!')
-
         # datasets and dataloaders
         k = 1 # number of transforms per image
-        train_transform = dataloaders.utils.get_transform(dataset=args.dataset, phase='train', aug=args.train_aug, dgr=self.dgr, swap=self.dataset_swap)
-        train_transform_hard = dataloaders.utils.get_transform(dataset=args.dataset, phase='train', aug=args.train_aug, hard_aug=True, dgr=self.dgr, swap=self.dataset_swap)
-        test_transform  = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, dgr=self.dgr, swap=self.dataset_swap)
-        if self.ext_data:
-            train_transform_ext = dataloaders.utils.get_transform(dataset=args.dataset_ext, phase='train', aug=args.train_aug, primary_dset = args.dataset, dgr=self.dgr, swap=self.dataset_swap)
-            self.ext_dataset = Dataset_ext(args.dataroot, train=True, tasks=tasks_ext,
-                                    download_flag=True, transform=TransformK(train_transform_ext, train_transform_ext, k), 
-                                    seed=self.seed, rand_split=args.rand_split, validation=args.validation)
-        
-        # swap datasets if doing OOD CL!
-        if not self.dataset_swap:
-            self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
-                                download_flag=True, transform=TransformK(train_transform, train_transform, k), 
-                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
-            self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
-                                    download_flag=False, transform=test_transform, 
-                                    seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+        if args.model_name.startswith('vit'):
+            resize_imnet = True
         else:
-            train_transform_ext = dataloaders.utils.get_transform(dataset=args.dataset_ext, phase='train', aug=args.train_aug, primary_dset = args.dataset, dgr=self.dgr, swap=self.dataset_swap)
-            self.ext_dataset = Dataset_ext(args.dataroot, train=True, tasks=self.tasks,
-                                    download_flag=True, transform=TransformK(train_transform_ext, train_transform_ext, k), 
-                                    seed=self.seed, rand_split=args.rand_split, validation=args.validation)
-            self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
-                                download_flag=True, transform=TransformK(train_transform, train_transform, k), 
-                                seed=self.seed, rand_split=args.rand_split, validation=args.validation, swap_dset = self.ext_dataset)
-            test_transform_ext  = dataloaders.utils.get_transform(dataset=args.dataset_ext, phase='ext', aug=args.train_aug, primary_dset = args.dataset, dgr=self.dgr, swap=self.dataset_swap)                   
-            ext_dataset_test = Dataset_ext(args.dataroot, train=False, tasks=tasks_ext,
-                                    download_flag=True, transform=test_transform_ext, 
-                                    seed=self.seed, rand_split=args.rand_split, validation=args.validation)                    
-            self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
+            resize_imnet = False
+        train_transform = dataloaders.utils.get_transform(dataset=args.dataset, phase='train', aug=args.train_aug, resize_imnet=resize_imnet)
+        test_transform  = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, resize_imnet=resize_imnet)
+        self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
+                            download_flag=True, transform=train_transform, 
+                            seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+        self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
                                 download_flag=False, transform=test_transform, 
-                                seed=self.seed, rand_split=args.rand_split, validation=args.validation, swap_dset = ext_dataset_test)
-        
-        self.train_dataset.simple_transform = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, dgr=self.dgr, swap=self.dataset_swap)
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
 
         # get dataset stats
         if False:
@@ -223,8 +159,6 @@ class Trainer:
                         'schedule_type': args.schedule_type,
                         'model_type': args.model_type,
                         'model_name': args.model_name,
-                        'gen_model_type': args.gen_model_type,
-                        'gen_model_name': args.gen_model_name,
                         'optimizer': args.optimizer,
                         'gpuid': args.gpuid,
                         'memory': args.memory,
@@ -235,19 +169,11 @@ class Trainer:
                         'beta': args.beta,
                         'eps': args.eps,
                         'DW': args.DW,
-                        'KD': args.KD,
                         'batch_size': args.batch_size,
-                        'stat_layers': args.stat_layers,
-                        'power_iters': args.power_iters,
-                        'deep_inv_params': args.deep_inv_params,
-                        'refresh_iters': args.refresh_iters,
                         'upper_bound_flag': args.upper_bound_flag,
-                        'playground_flag': args.playground_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
-                        'block_size': args.block_size,
-                        'layer_freeze': args.layer_freeze,
-                        'balanced_bce': args.balanced_bce,
+                        'prompt_param':[self.num_tasks,args.prompt_param]
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
@@ -258,25 +184,23 @@ class Trainer:
         self.test_dataset.load_dataset(self.num_tasks-1, train=False)
         test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
 
-        if self.ext_data:
-            if self.grayscale_vis: plt.rc('image', cmap='gray')
-            test_loader_ext = DataLoader(self.ext_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            self.learner.data_visualization(test_loader, test_loader_ext, vis_dir, name, t_index)
-        else:
-            if self.grayscale_vis: plt.rc('image', cmap='gray')
-            self.learner.data_visualization(test_loader, vis_dir, name, t_index)
+        if self.grayscale_vis: plt.rc('image', cmap='gray')
+        self.learner.data_visualization(test_loader, vis_dir, name, t_index)
 
         # val data
         embedding = self.learner.visualization(test_loader, vis_dir, name, t_index, embedding)
         return embedding
 
-    def task_eval(self, t_index, local=False, task='acc'):
+    def task_eval(self, t_index, local=False, task='acc', all_tasks=False):
 
         val_name = self.task_names[t_index]
         print('validation split name:', val_name)
         
         # eval
-        self.test_dataset.load_dataset(t_index, train=True)
+        if all_tasks:
+            self.test_dataset.load_dataset(t_index, train=False)
+        else:
+            self.test_dataset.load_dataset(t_index, train=True)
         test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
         if local:
             return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local)
@@ -306,9 +230,7 @@ class Trainer:
         # temporary results saving
         temp_table = {}
         for mkey in self.metric_keys: temp_table[mkey] = []
-        # HERE JAMES
-        temp_dir = self.log_dir + '/temp/'
-        # temp_dir = self.log_dir + '/'
+        temp_dir = self.log_dir + '/csv/'
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
         # for each task
@@ -344,8 +266,11 @@ class Trainer:
                 self.train_dataset.load_dataset(i, train=True)
                 self.add_dim = len(task)
 
-            # HERE JAMES
-            self.learner.max_task = self.max_task
+            # set task id for model (needed for prompting)
+            try:
+                self.learner.model.module.task_id = i
+            except:
+                self.learner.model.task_id = i
 
             # add valid class to classifier
             self.learner.add_valid_output_dim(self.add_dim)
@@ -354,12 +279,7 @@ class Trainer:
             self.train_dataset.append_coreset(only=False)
 
             # load dataloader
-            if self.ext_data:
-                train_loader_base = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers/2))
-                train_loader_ext = DataLoader(self.ext_dataset, batch_size=self.batch_size, shuffle=True, drop_last=False, num_workers=int(self.workers/2))
-                train_loader = dataloaders.DoubleDataLoader(train_loader_base, train_loader_ext)
-            else:
-                train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
+            train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
 
             # # T-sne plots
             # if self.vis_flag:
@@ -367,13 +287,19 @@ class Trainer:
             self.learner.debug_dir = vis_dir
             self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
 
+            # frequency table process
+            if i > 0:
+                try:
+                    if self.learner.model.module.prompt is not None:
+                        self.learner.model.module.prompt.process_frequency()
+                except:
+                    if self.learner.model.prompt is not None:
+                        self.learner.model.prompt.process_frequency()
+
             # learn
             self.test_dataset.load_dataset(i, train=False)
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            if i == 0:
-                model_save_dir = self.model_first_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-            else:
-                model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+            model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
 
@@ -390,9 +316,8 @@ class Trainer:
             self.reset_cluster_labels = True
             for j in range(i+1):
                 acc_table.append(self.task_eval(j))
-                acc_table_ssl.append(self.task_eval(j, task='aux_task'))
-            temp_table['acc'].append(np.mean(np.asarray(acc_table)))
-            temp_table['aux_task'].append(np.mean(np.asarray(acc_table_ssl)))
+            # temp_table['acc'].append(np.mean(np.asarray(acc_table)))
+            temp_table['acc'].append(self.task_eval(i, all_tasks=True))
             temp_table['mem'].append(self.learner.count_memory(self.dataset_size))
 
             # save temporary results
@@ -412,11 +337,9 @@ class Trainer:
                 avg_metrics['til']['global'][i] = til / (i+1)
                 if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i] = self.sim_eval(i, local=False)
 
-            # HERE JAMES
-            # print(apple)
         return avg_metrics 
     
-    def summarize_acc(self, acc_dict, acc_table, acc_table_pt):
+    def summarize_acc(self, acc_dict, acc_table, acc_table_pt, final_acc):
 
         # unpack dictionary
         avg_acc_all = acc_dict['global']
@@ -437,7 +360,8 @@ class Trainer:
             avg_acc_history[i] = cls_acc_sum / (i + 1)
 
         # Gather the final avg accuracy
-        avg_acc_all[:,self.seed] = avg_acc_history
+        # avg_acc_all[:,self.seed] = avg_acc_history
+        avg_acc_all[:,self.seed] = np.asarray(final_acc)
 
         # repack dictionary and return
         return {'global': avg_acc_all,'pt': avg_acc_pt,'pt-local': avg_acc_pt_local}
@@ -449,6 +373,7 @@ class Trainer:
         # store results
         metric_table = {}
         metric_table_local = {}
+        final_acc = []
         for mkey in self.metric_keys:
             metric_table[mkey] = {}
             metric_table_local[mkey] = {}
@@ -456,15 +381,20 @@ class Trainer:
         for i in range(self.max_task):
 
             # load model
-            
-            if i == 0:
-                model_save_dir = self.model_first_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-            else:
-                model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+            model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             self.learner.task_count = i 
             self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
             self.learner.pre_steps()
             self.learner.load_model(model_save_dir)
+
+            # frequency table process
+            if i > 0:
+                try:
+                    if self.learner.model.module.prompt is not None:
+                        self.learner.model.module.prompt.process_frequency()
+                except:
+                    if self.learner.model.prompt is not None:
+                        self.learner.model.prompt.process_frequency()
 
             # evaluate acc
             metric_table['acc'][self.task_names[i]] = OrderedDict()
@@ -477,40 +407,9 @@ class Trainer:
                 val_name = self.task_names[j]
                 metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
 
-            # evaluate aux_task
-            metric_table['aux_task'][self.task_names[i]] = OrderedDict()
-            metric_table_local['aux_task'][self.task_names[i]] = OrderedDict()
-            for j in range(i+1):
-                val_name = self.task_names[j]
-                metric_table['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, task='aux_task')
-                metric_table_local['aux_task'][val_name][self.task_names[i]] = self.task_eval(j, local=True, task='aux_task')
-
-        # # get final tsne embeddings
-        # if self.vis_flag:
-
-        #     # get new directory
-        #     vis_dir = self.log_dir + '/visualizations/final/'
-        #     if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-
-        #     # create embeddings
-        #     tsne_embedding = None
-        #     for i in reversed(range(self.max_task)):
-
-        #         # load model
-        #         if i == 0:
-                #     model_save_dir = self.model_first_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-                # else:
-                #     model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-        #         self.learner.load_model(model_save_dir)
-
-        #         # evaluate tsne
-        #         if tsne_embedding is None:
-        #             tsne_embedding = self.train_vis(vis_dir, 'task-'+str(i+1), i)
-        #         else:
-        #             self.train_vis(vis_dir, 'task-'+str(i+1), i, embedding=tsne_embedding)
+            final_acc.append(self.task_eval(i, all_tasks=True))
 
         # summarize metrics
-        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'])
-        avg_metrics['aux_task'] = self.summarize_acc(avg_metrics['aux_task'], metric_table['aux_task'],  metric_table_local['aux_task'])
+        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
 
         return avg_metrics

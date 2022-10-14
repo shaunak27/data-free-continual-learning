@@ -1,7 +1,7 @@
-# bash experiments/cifar100.sh
+# bash experiments/domainnet.sh
 # experiment settings
-SPLIT=10
-DATASET=CIFAR100
+SPLIT=5
+DATASET=DomainNet
 N_CLASS=100
 
 # save directory
@@ -10,8 +10,8 @@ OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
 GPUID='0 1 2 3'
-CONFIG_VIT=configs/cifar100_vit.yaml
-CONFIG_VIT_P=configs/cifar100_vit_prompt.yaml
+CONFIG_VIT=configs/domainnet_vit.yaml
+CONFIG_VIT_P=configs/domainnet_vit_prompt.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
