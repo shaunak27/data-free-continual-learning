@@ -34,13 +34,13 @@ mkdir -p $OUTDIR
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 18 6 1 \
+    --prompt_param 18 6 1 -1 \
     --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # dual prompt
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name DualPrompt \
-    --prompt_param 10 20 6 \
+    --prompt_param 10 20 6 -1 \
     --log_dir ${OUTDIR}/vit/dual-prompt
 
 # #############
@@ -50,7 +50,7 @@ python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 30 20 -1 \
+    --prompt_param 30 20 -1 -1 \
     --log_dir ${OUTDIR}/vit/l2p
 
 # linear only
