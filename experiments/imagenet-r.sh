@@ -55,17 +55,17 @@ python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --me
 
 
 
-# MU=
-# # ablate attention
-# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 100 20 -1 1 --mu $MU \
-#     --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
-# # small
-# python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name DualPrompt \
-#     --prompt_param 40 15 1 -1 --mu $MU \
-#     --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
+MU=1
+# ablate attention
+python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name DualPrompt \
+    --prompt_param 100 20 -1 1 --mu $MU \
+    --log_dir ${OUTDIR}/vit/atteprompt_ablate-att
+# small
+python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name DualPrompt \
+    --prompt_param 40 15 1 -1 --mu $MU \
+    --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
