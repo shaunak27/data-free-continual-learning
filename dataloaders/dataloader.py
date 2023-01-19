@@ -10,7 +10,8 @@ import torch.utils.data as data
 from .utils import download_url, check_integrity
 import random
 import torchvision.datasets as datasets
-
+import json 
+from models.zeroshot import imr_classnames
 VAL_HOLD = 0.1
 class iDataset(data.Dataset):
     
@@ -41,7 +42,6 @@ class iDataset(data.Dataset):
             for k in task:
                 self.class_mapping[k] = c
                 c += 1
-
         # targets as numpy.array
         self.data = np.asarray(self.data)
         self.targets = np.asarray(self.targets)
@@ -313,7 +313,11 @@ class iIMAGENET_R(iDataset):
         images_path = os.path.join(self.root, self.base_folder)
         data_dict = get_data(images_path)
         y = 0
-        for key in data_dict.keys():
+        mapper = json.load(open('/nethome/shalbe3/fed_prompt/data-free-continual-learning/imr_class_reverse_map.json'))
+        # names = [mapper[key] for key in data_dict.keys()]
+        # print(names)
+        ordered_keys = [mapper[key] for key in imr_classnames]
+        for key in ordered_keys:
             num_y = len(data_dict[key])
             self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
             self.targets.extend([y for i in np.arange(0,num_y)])

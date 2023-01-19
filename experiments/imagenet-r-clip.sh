@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=jan_18_t4
+DATE=jan_18_t5
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -103,7 +103,7 @@ MU=1
 
 # # # clip
 python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type default --learner_name NormalNN --log_dir ${OUTDIR}/vit/clip \
-    #--learner_type prompt --learner_name L2P \
-    #--prompt_param 30 20 -1 -1  \
-    
+    #--learner_type default --learner_name NormalNN \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 30 20 -1 -1  \
+    --log_dir ${OUTDIR}/vit/clip

@@ -96,8 +96,8 @@ class Trainer:
         p = 0
         while p < num_classes and (args.max_task == -1 or len(self.tasks) < args.max_task):
             inc = args.other_split_size if p > 0 else args.first_split_size
-            self.tasks.append(class_order[p:p+inc])
-            self.tasks_logits.append(class_order_logits[p:p+inc])
+            self.tasks.append(class_order[p:p+inc]) ## SHAUN : shuffled indices
+            self.tasks_logits.append(class_order_logits[p:p+inc]) ## SHAUN : ordered indices
             p += inc
         self.num_tasks = len(self.tasks)
         self.task_names = [str(i+1) for i in range(self.num_tasks)]
@@ -173,11 +173,11 @@ class Trainer:
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
-                        'prompt_param':[self.num_tasks,args.prompt_param]
+                        'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
-        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-        # self.learner.print_model()
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
+        ##SHAUN : Jump back to run.py
 
     def train_vis(self, vis_dir, name, t_index, pre=False, embedding=None):
         
@@ -234,7 +234,7 @@ class Trainer:
         if not os.path.exists(temp_dir): os.makedirs(temp_dir)
 
         # for each task
-        for i in range(self.max_task):
+        for i in range(self.max_task): ## SHAUN : See learner config
 
             # save current task index
             self.current_t_index = i
@@ -263,7 +263,7 @@ class Trainer:
                 self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
                 self.add_dim += len(task)
             else:
-                self.train_dataset.load_dataset(i, train=True)
+                self.train_dataset.load_dataset(i, train=True) ##SHAUN : See dataloader.py
                 self.add_dim = len(task)
 
             # set task id for model (needed for prompting)
@@ -297,11 +297,12 @@ class Trainer:
                         self.learner.model.prompt.process_frequency()
 
             # learn
-            self.test_dataset.load_dataset(i, train=False)
+            self.test_dataset.load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
+            
+            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader) ## SHAUN : Jump to LWF
 
             # save model
             self.learner.save_model(model_save_dir)

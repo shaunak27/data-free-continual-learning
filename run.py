@@ -35,7 +35,7 @@ def create_args():
     parser.add_argument('--memory', type=int, default=0, help="size of memory for replay")
     parser.add_argument('--temp', type=float, default=2., dest='temp', help="temperature for distillation")
     parser.add_argument('--DW', default=False, action='store_true', help='dataset balancing')
-    parser.add_argument('--prompt_param', nargs="+", type=int, default=[1, 1, 1],
+    parser.add_argument('--prompt_param', nargs="+", type=int, default=[1, 1, 1, 0],
                          help="e prompt pool size, e prompt length, g prompt length")
 
     # Arch params
@@ -71,8 +71,8 @@ class Logger(object):
         self.log.flush()
 
 if __name__ == '__main__':
-    args = get_args(sys.argv[1:])
-
+    args = get_args(sys.argv[1:]) ## SHAUN : Adds argument from the config file 
+    
     # determinstic backend
     torch.backends.cudnn.deterministic=True
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     # save args
     with open(args.log_dir + '/args.yaml', 'w') as yaml_file:
         yaml.dump(vars(args), yaml_file, default_flow_style=False)
-    
+        
     metric_keys = ['acc','mem','time','plastic','til','cka']
     save_keys = ['global', 'pt', 'pt-local']
     global_only = ['mem','time','plastic','til','cka']
@@ -136,7 +136,7 @@ if __name__ == '__main__':
         torch.cuda.manual_seed(seed)
 
         # set up a trainer
-        trainer = Trainer(args, seed, metric_keys, save_keys)
+        trainer = Trainer(args, seed, metric_keys, save_keys) ## SHAUN : Initialize Trainer, jump to trainer.py:  
 
         # init total run metrics storage
         max_task = trainer.max_task
@@ -148,7 +148,7 @@ if __name__ == '__main__':
                     avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
 
         # train model
-        avg_metrics = trainer.train(avg_metrics)  
+        avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
 
         # evaluate model
         avg_metrics = trainer.evaluate(avg_metrics)    

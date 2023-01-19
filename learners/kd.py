@@ -26,7 +26,7 @@ from torch.autograd import Variable, Function
 class LWF(NormalNN):
 
     def __init__(self, learner_config):
-        super(LWF, self).__init__(learner_config)
+        super(LWF, self).__init__(learner_config) ##SHAUN : Jump to NormalNN init
         self.previous_teacher = None
         self.replay = False
         self.past_tasks = []

@@ -1,6 +1,8 @@
 # repo-specific stuff
+data
 data/
-_outputs/
+_outputs
+outputs/
 plots_and_tables/
 *.pt
 \#*#

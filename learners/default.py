@@ -26,8 +26,8 @@ class NormalNN(nn.Module):
         super(NormalNN, self).__init__()
         self.log = print
         self.config = learner_config
-        self.out_dim = learner_config['out_dim']
-        self.model = self.create_model()
+        self.out_dim = learner_config['out_dim'] ##SHAUN : see trainer.py init function
+        self.model = self.create_model() ##SHAUN : 
         self.reset_optimizer = True
         self.overwrite = learner_config['overwrite']
         self.batch_size = learner_config['batch_size']
@@ -118,7 +118,6 @@ class NormalNN(nn.Module):
 
                     # verify in train mode
                     self.model.train()
-
                     # send data to gpu
                     if self.gpu:
                         x = x.cuda()
@@ -188,10 +187,8 @@ class NormalNN(nn.Module):
         torch._Loss :
             the loss function with any modifications added
         """
-        # print('*************')
-        # print(data_weights)
-        # print('*************')
-        loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
+        # loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
+        loss_supervised = self.criterion_fn(logits, targets.long()).mean()
         return loss_supervised 
 
     def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
@@ -578,7 +575,7 @@ class NormalNN(nn.Module):
         cfg = self.config
 
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
 
         return model
 
@@ -616,6 +613,7 @@ class NormalNN(nn.Module):
         self.criterion_fn = self.criterion_fn.cuda()
         # Multi-GPU
         if len(self.config['gpuid']) > 1:
+            print('Using multiple GPUs')
             self.model = torch.nn.DataParallel(self.model, device_ids=self.config['gpuid'], output_device=self.config['gpuid'][0])
         return self
 
@@ -632,7 +630,9 @@ def weight_reset(m):
         m.reset_parameters()
 
 def accumulate_acc(output, target, task, meter, topk):
-    meter.update(accuracy(output, target, topk), len(target))
+    current_acc = accuracy(output, target, topk)
+    #print(f'Current Accuracy : ',current_acc)
+    meter.update(current_acc, len(target))
     return meter
 
 def loss_fn_kd(scores, target_scores, data_weights, allowed_predictions, T=2., soft_t = False):

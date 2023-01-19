@@ -4,9 +4,11 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import torchvision.models as models
 from torch.autograd import Variable
-from .vit import VisionTransformer
+import utils.clip_utils as utils
+import clip.clip as clip
+from .zeroshot import get_zeroshot_classifier
 import numpy as np
-
+import os
 def tensor_prompt(a, b, c=None):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
@@ -190,66 +192,104 @@ class L2P(DualPrompt):
         self.e_p_length = prompt_param[1]
         self.e_pool_size = prompt_param[0]
 
+### SHAUN TODO : Instead of vit.py, add the architecture code in clip folder !
+
+### SHAUN TODO : Add ImageEncoder class here 
+
+class ImageEncoder(torch.nn.Module):
+    def __init__(self, keep_lang=False):
+        super().__init__()
+
+        self.model, self.train_preprocess, self.val_preprocess = clip.load(
+            "ViT-B/32", "cuda", jit=False)
+        
+        self.cache_dir = 'checkpoints'#args.cache_dir
+
+        if not keep_lang and hasattr(self.model, 'transformer'):
+            delattr(self.model, 'transformer')
+
+    def forward(self, images):
+        assert self.model is not None
+        return self.model.encode_image(images)
+
+    def save(self, filename):
+        print(f'Saving image encoder to {filename}')
+        utils.torch_save(self, filename)
+
+    @classmethod
+    def load(cls, filename):
+        print(f'Loading image encoder from {filename}')
+        return utils.torch_load(filename)
 
 
+class ClassificationHead(torch.nn.Linear):
+    def __init__(self, normalize, weights, biases=None):
+        output_size, input_size = weights.shape
+        super().__init__(input_size, output_size)
+        self.normalize = normalize
+        if weights is not None:
+            self.weight = torch.nn.Parameter(weights.clone())
+        if biases is not None:
+            self.bias = torch.nn.Parameter(biases.clone())
+        else:
+            self.bias = torch.nn.Parameter(torch.zeros_like(self.bias))
 
+    def forward(self, inputs):
+        if self.normalize:
+            inputs = inputs / inputs.norm(dim=-1, keepdim=True)
+        return super().forward(inputs)
 
-class ResNetZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=False, mode=1, prompt_flag=False, prompt_param=None):
-        super(ResNetZoo, self).__init__()
+    def save(self, filename):
+        print(f'Saving classification head to {filename}')
+        utils.torch_save(self, filename)
 
-        # get last layer
-        self.last = nn.Linear(512, num_classes)
+    @classmethod
+    def load(cls, filename):
+        print(f'Loading classification head from {filename}')
+        return utils.torch_load(filename)
+
+class ImageClassifier(nn.Module):
+    def __init__(self, image_encoder, classification_head, prompt_flag, prompt_param, process_images=True):
+        super().__init__()
+        self.image_encoder = image_encoder
+        self.classification_head = classification_head
+        self.process_images = process_images
         self.prompt_flag = prompt_flag
-        self.task_id = None
-
-        # get feature encoder
-        if mode == 0:
-            if pt:
-                zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12, 
-                                           num_heads=12, use_grad_checkpointing=False, ckpt_layer=0,
-                                           drop_path_rate=0
-                                          )   
-                checkpoint = torch.hub.load_state_dict_from_url(
-                    url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-                    map_location="cpu", check_hash=True)
-                state_dict = checkpoint["model"]     
-                msg = zoo_model.load_state_dict(state_dict,strict=False)
-                self.last = nn.Linear(768, num_classes)
-
-        # create prompting module
+        
+        if self.image_encoder is not None:
+            self.train_preprocess = self.image_encoder.train_preprocess
+            self.val_preprocess = self.image_encoder.val_preprocess
+        
         if self.prompt_flag == 'l2p':
-            self.prompt = L2P(768, prompt_param[0], prompt_param[1]) ##SHAUN : Jump to L2P. See trainer.py last few lines of init
-            
-
-        elif self.prompt_flag == 'dual':
-            self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
-
+            self.prompt = L2P(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
-        
-        # feature encoder changes if transformer vs resnet
-        self.feat = zoo_model
-        
 
-    def forward(self, x, pen=False, train=False):
-
+    def forward(self, inputs,train=False):
         if self.prompt is not None:
             with torch.no_grad():
-                q, _ = self.feat(x)
-                q = q[:,0,:]
-            out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
-            out = out[:,0,:]
+                q = self.image_encoder(inputs)
+            out,prompt_loss = self.image_encoder(inputs, prompt=self.prompt, q=q, train=train)
         else:
-            out, _ = self.feat(x)
-            out = out[:,0,:]
-        out = out.view(out.size(0), -1)
-        if not pen:
-            out = self.last(out)
-        if self.prompt is not None and train:
-            return out, prompt_loss
-        else:
-            return out
-            
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
-    return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param) ##SHAUN : Jump to ResnetZoo init
+            out = self.image_encoder(inputs)
+        outputs = self.classification_head(out)
+        return outputs
+
+    def save(self, filename):
+        print(f'Saving image classifier to {filename}')
+        utils.torch_save(self, filename)
+
+    @classmethod
+    def load(cls, filename):
+        print(f'Loading image classifier from {filename}')
+        return utils.torch_load(filename) 
+
+def clip_pt(out_dim,prompt_flag = None,prompt_param = None):
+    
+    #build and store ZS model from wise_ft stuff here. Return the ImageClassifier
+
+    image_encoder = ImageEncoder(keep_lang=True)
+    zeroshot_weights = get_zeroshot_classifier(image_encoder.model)
+    classification_head = ClassificationHead(normalize=True, weights=zeroshot_weights)
+    delattr(image_encoder.model, 'transformer')
+    return ImageClassifier(image_encoder, classification_head,prompt_flag=prompt_flag,prompt_param=prompt_param)

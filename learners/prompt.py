@@ -26,14 +26,14 @@ from torch.autograd import Variable, Function
 class DualPrompt(LWF):
 
     def __init__(self, learner_config):
-        self.prompt_param = learner_config['prompt_param']
-        super(DualPrompt, self).__init__(learner_config)
+        self.prompt_param = learner_config['prompt_param']  ##SHAUN : prompt param are supplied as cl args
+        super(DualPrompt, self).__init__(learner_config)  ##SHAUN : Jump to LWF init
 
     # update model - add dual prompt loss   
     def update_model(self, inputs, targets, target_KD = None):
 
         # logits
-        logits, prompt_loss = self.model(inputs, train=True)
+        logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
         logits = logits[:,:self.valid_out_dim]
 
         # # bce
@@ -59,7 +59,10 @@ class DualPrompt(LWF):
     def init_optimizer(self):
 
         # parse optimizer args
-        params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
+        try :
+            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
+        except : 
+            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.last.parameters())
         print('*****************************************')
         print('*****************************************')
         print('*****************************************')
@@ -189,13 +192,13 @@ class DualPromptNEW(DualPrompt):
 class L2P(DualPrompt):
 
     def __init__(self, learner_config):
-        super(L2P, self).__init__(learner_config)
+        super(L2P, self).__init__(learner_config) ##SHAUN : Jump to DualPrompt Initialization
 
     def create_model(self):
         cfg = self.config
 
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param) ##SHAUN : Jump to vit_pt_imnet in zoo_old
 
         return model
 
