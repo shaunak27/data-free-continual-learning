@@ -4,13 +4,13 @@ other_split_size: 10
 schedule:
 - 10
 schedule_type: cosine
-batch_size: 19
+batch_size: 256
 optimizer: Adam
-lr: 0.005
+lr: 0.03
 momentum: 0.9
-weight_decay: 0
-model_type: zoo_old
-model_name: vit_pt_imnet
+weight_decay: 0.1
+model_type: zoo_clip
+model_name: clip_pt
 vis_flag: False
 max_task: 10
 dataroot: data

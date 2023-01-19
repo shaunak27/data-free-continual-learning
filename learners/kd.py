@@ -148,9 +148,15 @@ class LWF(NormalNN):
         self.previous_teacher = copy.deepcopy(teacher)
         self.replay = True
         if len(self.config['gpuid']) > 1:
-            self.previous_linear = copy.deepcopy(self.model.module.last)
+            try:
+                self.previous_linear = copy.deepcopy(self.model.module.last)
+            except:
+                self.previous_linear = copy.deepcopy(self.model.module.last)
         else:
-            self.previous_linear = copy.deepcopy(self.model.last)
+            try:
+                self.previous_linear = copy.deepcopy(self.model.last)
+            except:
+                self.previous_linear = copy.deepcopy(self.model.last)
         
         # prepare dataloaders for block replay methods
         self.accumulate_block_memory(train_loader)

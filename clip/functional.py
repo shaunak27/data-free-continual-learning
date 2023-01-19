@@ -423,8 +423,6 @@ def multi_head_attention_forward(
         pv = pk.permute(1,0,2).reshape(pk.shape[1],bsz*num_heads,-1).transpose(0,1)
         k = torch.cat((pk,k), dim=1)
         v = torch.cat((pv,v), dim=1)
-        print(k.shape,v.shape)
-        exit()
     #
     # (deep breath) calculate attention and out projection
     #

@@ -65,6 +65,6 @@ def get_zeroshot_classifier(clip_model):
         zeroshot_weights = zeroshot_weights.squeeze().float()
         zeroshot_weights = torch.transpose(zeroshot_weights, 0, 1)
 
-    #classification_head = ClassificationHead(normalize=True, weights=zeroshot_weights)
+    #last = ClassificationHead(normalize=True, weights=zeroshot_weights)
 
-    return zeroshot_weights #classification_head
+    return zeroshot_weights #last

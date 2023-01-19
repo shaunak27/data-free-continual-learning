@@ -204,6 +204,7 @@ class NormalNN(nn.Module):
 
         self.optimizer.zero_grad()
         total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) #TODO : replace to params_to_opt ??
         self.optimizer.step()
         return total_loss.detach(), logits
 
@@ -540,16 +541,20 @@ class NormalNN(nn.Module):
 
     # sets model optimizers
     def init_optimizer(self):
-
+        if self.config['freeze_encoder']:
+            print('Freezing encoder')
+            params_to_opt = self.model.last.parameters()
+        else:
+            params_to_opt = self.model.parameters()
         # parse optimizer args
         print('*****************************************')
         print('*****************************************')
         print('*****************************************')
-        print('Num param opt: ' + str(count_parameters(self.model.parameters())))
+        print('Num param opt: ' + str(count_parameters(params_to_opt)))
         print('*****************************************')
         print('*****************************************')
         print('*****************************************')
-        optimizer_arg = {'params':self.model.parameters(),
+        optimizer_arg = {'params':params_to_opt,
                          'lr':self.config['lr'],
                          'weight_decay':self.config['weight_decay']}
         if self.config['optimizer'] in ['SGD','RMSprop']:

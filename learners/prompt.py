@@ -22,6 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
+import time
 
 class DualPrompt(LWF):
 
@@ -196,7 +197,6 @@ class L2P(DualPrompt):
 
     def create_model(self):
         cfg = self.config
-
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param) ##SHAUN : Jump to vit_pt_imnet in zoo_old
 

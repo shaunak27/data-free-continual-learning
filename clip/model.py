@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from clip.activation import MultiheadAttention
+import time
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -197,7 +198,7 @@ class Transformer(nn.Module):
         self.layers = layers
         self.resblocks = nn.ModuleList([ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
 
-    def forward(self, x: torch.Tensor,prompt=None, q = None, train = False, task_id=None,vflag=False):
+    def forward(self, x: torch.Tensor, prompt=None, q = None, train = False, task_id=None, vflag=False):
         prompt_loss = torch.zeros((1,), requires_grad=True).cuda()
         for i,blk in enumerate(self.resblocks):
             if prompt is not None:
@@ -209,8 +210,8 @@ class Transformer(nn.Module):
             else:
                 p_list = None
 
-            x = blk(x, prompt=p_list,vflag=vflag)
-        return x
+            x = blk(x, prompt=p_list, vflag=vflag)
+        return x , prompt_loss
 
 class VisualTransformer(nn.Module):
     def __init__(self, input_resolution: int, patch_size: int, width: int, layers: int, heads: int, output_dim: int):
@@ -235,7 +236,7 @@ class VisualTransformer(nn.Module):
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor,prompt=None,q=None,train=False,feat_extraction=False):
         #print("original : ",x.shape)
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         #print("after conv : ",x.shape)
@@ -246,16 +247,18 @@ class VisualTransformer(nn.Module):
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
-
-        x = self.transformer(x,vflag=True)
+        x, prompt_loss = self.transformer(x, vflag=True, prompt=prompt, q=q, train=train)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
         x = self.ln_post(x[:, 0, :])
-
+        if feat_extraction:
+            return x
         if self.proj is not None:
             x = x @ self.proj
-
-        return x
+        if prompt: 
+            return x, prompt_loss
+        else :
+            return x
 
 
 class CLIP(nn.Module):
@@ -356,15 +359,15 @@ class CLIP(nn.Module):
     def dtype(self):
         return self.visual.conv1.weight.dtype
 
-    def encode_image(self, image):
-        return self.visual(image.type(self.dtype))
+    def encode_image(self, image,prompt=None,q=None,train=False, feat_extraction=False):
+        return self.visual(image.type(self.dtype),prompt=prompt, q=q, train=train, feat_extraction=feat_extraction)
 
     def encode_text(self, text):
         x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
 
         x = x + self.positional_embedding.type(self.dtype)
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
+        x,_ = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
         x = self.ln_final(x).type(self.dtype)
 

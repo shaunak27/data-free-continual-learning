@@ -9,6 +9,7 @@ import clip.clip as clip
 from .zeroshot import get_zeroshot_classifier
 import numpy as np
 import os
+import time
 def tensor_prompt(a, b, c=None):
     if c is None:
         p = torch.nn.Parameter(torch.FloatTensor(a,b), requires_grad=True)
@@ -132,6 +133,8 @@ class DualPrompt(nn.Module):
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
                 k_idx = top_k.indices
+                # print(k_idx)
+                # time.sleep(500)
                 P_ = p[k_idx][:,0]
                 
             # select prompts
@@ -208,9 +211,9 @@ class ImageEncoder(torch.nn.Module):
         if not keep_lang and hasattr(self.model, 'transformer'):
             delattr(self.model, 'transformer')
 
-    def forward(self, images):
+    def forward(self, images, prompt=None, q=None, train=False, feat_extraction=False):
         assert self.model is not None
-        return self.model.encode_image(images)
+        return self.model.encode_image(images,prompt=prompt,q=q,train=train,feat_extraction=feat_extraction)
 
     def save(self, filename):
         print(f'Saving image encoder to {filename}')
@@ -249,17 +252,16 @@ class ClassificationHead(torch.nn.Linear):
         return utils.torch_load(filename)
 
 class ImageClassifier(nn.Module):
-    def __init__(self, image_encoder, classification_head, prompt_flag, prompt_param, process_images=True):
+    def __init__(self, image_encoder, last, prompt_flag, prompt_param, process_images=True):
         super().__init__()
         self.image_encoder = image_encoder
-        self.classification_head = classification_head
+        self.last = last
         self.process_images = process_images
         self.prompt_flag = prompt_flag
         
         if self.image_encoder is not None:
             self.train_preprocess = self.image_encoder.train_preprocess
             self.val_preprocess = self.image_encoder.val_preprocess
-        
         if self.prompt_flag == 'l2p':
             self.prompt = L2P(768, prompt_param[0], prompt_param[1])
         else:
@@ -268,12 +270,15 @@ class ImageClassifier(nn.Module):
     def forward(self, inputs,train=False):
         if self.prompt is not None:
             with torch.no_grad():
-                q = self.image_encoder(inputs)
-            out,prompt_loss = self.image_encoder(inputs, prompt=self.prompt, q=q, train=train)
+                q = self.image_encoder(inputs,feat_extraction=True)
+            out, prompt_loss = self.image_encoder(inputs, prompt=self.prompt, q=q, train=train)
         else:
             out = self.image_encoder(inputs)
-        outputs = self.classification_head(out)
-        return outputs
+        outputs = self.last(out)
+        if self.prompt is not None and train:
+            return outputs, prompt_loss
+        else:
+            return outputs
 
     def save(self, filename):
         print(f'Saving image classifier to {filename}')
@@ -290,6 +295,6 @@ def clip_pt(out_dim,prompt_flag = None,prompt_param = None):
 
     image_encoder = ImageEncoder(keep_lang=True)
     zeroshot_weights = get_zeroshot_classifier(image_encoder.model)
-    classification_head = ClassificationHead(normalize=True, weights=zeroshot_weights)
+    last = ClassificationHead(normalize=True, weights=zeroshot_weights)
     delattr(image_encoder.model, 'transformer')
-    return ImageClassifier(image_encoder, classification_head,prompt_flag=prompt_flag,prompt_param=prompt_param)
+    return ImageClassifier(image_encoder, last, prompt_flag=prompt_flag,prompt_param=prompt_param)
