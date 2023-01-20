@@ -177,7 +177,6 @@ class Trainer:
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }
-        print(self.learner_config)
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
         ##SHAUN : Jump back to run.py
