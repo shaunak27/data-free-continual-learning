@@ -48,7 +48,7 @@ def create_args():
                          help="yaml experiment config input")
 
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
-    parser.add_argument('--only_eval_zs',default=False)
+    parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
     return parser
 
 def get_args(argv):
