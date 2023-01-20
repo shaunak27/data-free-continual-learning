@@ -48,6 +48,7 @@ def create_args():
                          help="yaml experiment config input")
 
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
+    parser.add_argument('--only_eval_zs',default=False)
     return parser
 
 def get_args(argv):
@@ -148,10 +149,13 @@ if __name__ == '__main__':
                     avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
 
         # train model
-        avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
-
+        if not args.only_eval_zs:
+            avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
+            avg_metrics = trainer.evaluate(avg_metrics)
+        else:
+            avg_metrics = trainer.evaluate_zs(avg_metrics)
         # evaluate model
-        avg_metrics = trainer.evaluate(avg_metrics)    
+            
 
         # save results
         for mkey in metric_keys: 

@@ -9,7 +9,7 @@ DATE=jan_18_clipfull
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0 1'
 CONFIG_VIT=configs/imnet-r_vit.yaml
 CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
 CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
@@ -103,7 +103,7 @@ MU=1
 
 # # # clip
 python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type default --learner_name NormalNN --log_dir ${OUTDIR}/vit/clip \
+    --learner_type default --learner_name NormalNN --log_dir ${OUTDIR}/vit/clip --only_eval_zs \
     #--learner_type prompt --learner_name L2P \
     #--prompt_param 30 20 -1 -1  \
     
