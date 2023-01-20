@@ -61,9 +61,14 @@ class DualPrompt(LWF):
 
         # parse optimizer args
         try :
-            params_to_opt = list(self.model.module.prompt.parameters()) + list(self.model.module.last.parameters())
+            params_to_opt = list(self.model.module.prompt.parameters()) 
+            if not self.config['freeze_last']:
+                params_to_opt += list(self.model.module.last.parameters())
         except : 
-            params_to_opt = list(self.model.prompt.parameters()) + list(self.model.last.parameters())
+            params_to_opt = list(self.model.prompt.parameters())
+            if not self.config['freeze_last']:
+                params_to_opt += list(self.model.last.parameters())
+                
         print('*****************************************')
         print('*****************************************')
         print('*****************************************')

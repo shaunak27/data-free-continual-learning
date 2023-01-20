@@ -47,7 +47,7 @@ def create_args():
     parser.add_argument('--config', type=str, default="configs/config.yaml",
                          help="yaml experiment config input")
 
-
+    parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     return parser
 
 def get_args(argv):

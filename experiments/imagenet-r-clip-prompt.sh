@@ -5,7 +5,17 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=jan_18_clipl2p_biglr
+
+if [ $# -eq 2 ]
+    then
+        DATE="jan_20_clipl2p_$2"
+elif [ $# -eq 1 ]
+    then
+        DATE="jan_20_clipl2p_$1"
+else
+    DATE="jan_20_clipl2p"
+fi
+
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -102,5 +112,11 @@ MU=1
 # #     --log_dir ${OUTDIR}/vit/lwf-mc
 
 # # # clip
-python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip
+if [ $# -eq 2 ]
+    then
+        python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+            --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip $1
+else
+    python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+            --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip
+fi

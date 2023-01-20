@@ -157,6 +157,7 @@ class Trainer:
                         'weight_decay': args.weight_decay,
                         'schedule': args.schedule,
                         'freeze_encoder' : args.freeze_encoder,
+                        'freeze_last' : args.freeze_last,
                         'schedule_type': args.schedule_type,
                         'model_type': args.model_type,
                         'model_name': args.model_name,
@@ -176,6 +177,7 @@ class Trainer:
                         'top_k': self.top_k,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }
+        print(self.learner_config)
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
         ##SHAUN : Jump back to run.py
