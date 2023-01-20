@@ -2,7 +2,7 @@
 data
 data/
 _outputs
-outputs/
+_outputs/
 plots_and_tables/
 *.pt
 \#*#

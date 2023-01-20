@@ -6,7 +6,7 @@ schedule:
 schedule_type: cosine
 batch_size: 256
 optimizer: Adam
-lr: 0.003
+lr: 0.3
 momentum: 0.9
 weight_decay: 0.1
 model_type: zoo_clip

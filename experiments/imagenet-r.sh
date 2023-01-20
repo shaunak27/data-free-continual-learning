@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=jan_18_t4
+DATE=jan_18_clipfull
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs

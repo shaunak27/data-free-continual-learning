@@ -542,10 +542,12 @@ class NormalNN(nn.Module):
     # sets model optimizers
     def init_optimizer(self):
         if self.config['freeze_encoder']:
-            print('Freezing encoder')
-            params_to_opt = self.model.last.parameters()
+            try :
+                params_to_opt = list(self.model.module.last.parameters())
+            except :
+                params_to_opt = list(self.model.last.parameters())
         else:
-            params_to_opt = self.model.parameters()
+            params_to_opt = list(self.model.parameters())
         # parse optimizer args
         print('*****************************************')
         print('*****************************************')
