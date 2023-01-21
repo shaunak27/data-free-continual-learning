@@ -204,7 +204,7 @@ class ImageEncoder(torch.nn.Module):
         super().__init__()
 
         self.model, self.train_preprocess, self.val_preprocess = clip.load(
-            "ViT-B/32", "cuda", jit=False)
+            "ViT-B/16", "cuda", jit=False)
         
         self.cache_dir = 'checkpoints'#args.cache_dir
 
