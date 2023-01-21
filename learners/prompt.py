@@ -68,7 +68,7 @@ class DualPrompt(LWF):
             params_to_opt = list(self.model.prompt.parameters())
             if not self.config['freeze_last']:
                 params_to_opt += list(self.model.last.parameters())
-                
+
         print('*****************************************')
         print('*****************************************')
         print('*****************************************')
@@ -203,7 +203,7 @@ class L2P(DualPrompt):
     def create_model(self):
         cfg = self.config
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param) ##SHAUN : Jump to vit_pt_imnet in zoo_old
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
 
         return model
 

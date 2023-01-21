@@ -175,6 +175,7 @@ class Trainer:
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
                         'top_k': self.top_k,
+                        'template_style':args.template_style,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
@@ -389,6 +390,51 @@ class Trainer:
             self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
             self.learner.pre_steps()
             self.learner.load_model(model_save_dir)
+
+            # frequency table process
+            if i > 0:
+                try:
+                    if self.learner.model.module.prompt is not None:
+                        self.learner.model.module.prompt.process_frequency()
+                except:
+                    if self.learner.model.prompt is not None:
+                        self.learner.model.prompt.process_frequency()
+
+            # evaluate acc
+            metric_table['acc'][self.task_names[i]] = OrderedDict()
+            metric_table_local['acc'][self.task_names[i]] = OrderedDict()
+            self.reset_cluster_labels = True
+            for j in range(i+1):
+                val_name = self.task_names[j]
+                metric_table['acc'][val_name][self.task_names[i]] = self.task_eval(j)
+            for j in range(i+1):
+                val_name = self.task_names[j]
+                metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
+
+            final_acc.append(self.task_eval(i, all_tasks=True))
+
+        # summarize metrics
+        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
+
+        return avg_metrics
+    
+    def evaluate_zs(self, avg_metrics):
+
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+
+        # store results
+        metric_table = {}
+        metric_table_local = {}
+        final_acc = []
+        for mkey in self.metric_keys:
+            metric_table[mkey] = {}
+            metric_table_local[mkey] = {}
+
+        for i in range(self.max_task):
+
+            self.learner.task_count = i 
+            self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
+            self.learner.pre_steps()
 
             # frequency table process
             if i > 0:
