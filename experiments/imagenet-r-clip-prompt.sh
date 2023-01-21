@@ -6,14 +6,14 @@ N_CLASS=200
 
 # save directory
 
-if [ $# -eq 2 ]
+# if [ $# -ge 2 ]
+#     then
+#         DATE="jan_21_newclipl2p_$2"
+if [ $# -ge 1 ]
     then
-        DATE="jan_20_clipl2p_$2"
-elif [ $# -eq 1 ]
-    then
-        DATE="jan_20_clipl2p_$1"
+        DATE="jan_21_newclipl2p_$1"
 else
-    DATE="jan_20_clipl2p"
+    DATE="jan_21_newclipl2p"
 fi
 
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
@@ -112,11 +112,17 @@ MU=1
 # #     --log_dir ${OUTDIR}/vit/lwf-mc
 
 # # # clip
-if [ $# -eq 2 ]
+if [ $# -eq 3 ]
     then
         python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-            --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip $1
+            --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip $2 --template_style $3
+elif [ $# -eq 2 ]
+    then
+        python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+            --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip $2
 else
     python -u run.py --config $CONFIG_CLIP --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
             --learner_type prompt --learner_name L2P --prompt_param 30 20 -1 -1  --log_dir ${OUTDIR}/vit/clip
 fi
+
+## example of last two arguments —freeze_last onlyprompt gibberish_template

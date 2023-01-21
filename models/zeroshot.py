@@ -32,9 +32,9 @@ imr_classnames = ['goldfish', 'great white shark', 'hammerhead', 'stingray', 'he
 'lemon', 'pineapple', 'banana', 'pomegranate', 'pizza', 'burrito', 'espresso', 'volcano', 'baseball player',
 'scuba diver', 'acorn']
 
-def get_zeroshot_classifier(clip_model):
+def get_zeroshot_classifier(clip_model,template_style='openai_imagenet_template'):
 
-    template = getattr(templates, 'openai_imagenet_template')
+    template = getattr(templates, template_style)
     logit_scale = clip_model.logit_scale
     
     device = "cuda"

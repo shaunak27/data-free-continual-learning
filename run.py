@@ -46,7 +46,8 @@ def create_args():
     # Config Arg
     parser.add_argument('--config', type=str, default="configs/config.yaml",
                          help="yaml experiment config input")
-
+    parser.add_argument('--template_style', type=str, default="openai_imagenet_template",
+                         help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
     return parser
