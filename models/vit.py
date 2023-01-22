@@ -79,8 +79,6 @@ class Attention(nn.Module):
             k = torch.cat((pk,k), dim=2)
             v = torch.cat((pv,v), dim=2)
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        if prompt is not None : 
-            print(attn.shape)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
                 

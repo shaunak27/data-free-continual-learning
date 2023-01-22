@@ -48,12 +48,14 @@ class DualPrompt(LWF):
 
         # ce loss
         total_loss = total_loss + self.mu * prompt_loss.sum()
-
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
+        # if len(self.config['gpuid']) > 1:
+        #     print(self.model.module.prompt.e_p_0.grad)
+        # else:
+        #     print(self.model.prompt.e_p_0.grad)
         self.optimizer.step()
-
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
 
     # sets model optimizers
@@ -189,6 +191,7 @@ class DualPromptNEW(DualPrompt):
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
+        
         self.optimizer.step()
 
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
@@ -203,8 +206,10 @@ class L2P(DualPrompt):
     def create_model(self):
         cfg = self.config
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
-
+        if 'clip' in cfg['model_name']:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
+        else:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
         return model
 
 
