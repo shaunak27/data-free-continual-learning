@@ -51,10 +51,6 @@ class DualPrompt(LWF):
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
-        # if len(self.config['gpuid']) > 1:
-        #     print(self.model.module.prompt.e_p_0.grad)
-        # else:
-        #     print(self.model.prompt.e_p_0.grad)
         self.optimizer.step()
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
 
@@ -103,9 +99,11 @@ class DualPrompt(LWF):
     def create_model(self):
         cfg = self.config
 
-        # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
-
+        # Define the backbone (MLP, LeNet, VGG, ResNet, CLIP ... etc) of model
+        if 'clip' in cfg['model_name']:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
+        else:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
         return model
 
     def cuda(self):

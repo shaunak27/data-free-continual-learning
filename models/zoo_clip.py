@@ -260,6 +260,8 @@ class ImageClassifier(nn.Module):
             self.val_preprocess = self.image_encoder.val_preprocess
         if self.prompt_flag == 'l2p':
             self.prompt = L2P(768, prompt_param[0], prompt_param[1])
+        elif self.prompt_flag == 'dual':
+            self.prompt = DualPrompt(768, prompt_param[0], prompt_param[1])
         else:
             self.prompt = None
 

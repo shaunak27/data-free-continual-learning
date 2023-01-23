@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=jan18_luck
+DATE=clip_l2p_multilayer_onlyprompt
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -108,10 +108,10 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/clip
     #--learner_type default --learner_name NormalNN \
     
-## clip l2p multilayer
+## clip l2p multilayer (freeze last)
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
      --learner_type prompt --learner_name L2P --mu $MU --log_dir ${OUTDIR}/clip/l2p_multilayer \
-    --prompt_param 100 20 1 -1 
+    --prompt_param 100 20 1 -1 --freeze_last
     
 
 # # # clip ZS with prompting
