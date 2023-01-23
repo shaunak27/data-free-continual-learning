@@ -125,7 +125,6 @@ class NormalNN(nn.Module):
                     
                     # model update
                     loss, output= self.update_model(x, y)
-
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
                     batch_timer.tic()

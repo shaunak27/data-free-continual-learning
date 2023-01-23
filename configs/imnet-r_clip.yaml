@@ -1,10 +1,10 @@
 dataset: ImageNet_R
-first_split_size: 200
-other_split_size: 200
+first_split_size: 10
+other_split_size: 10
 schedule:
 - 10
 schedule_type: cosine
-batch_size: 128
+batch_size: 15
 optimizer: Adam
 lr: 0
 momentum: 0.9
@@ -12,7 +12,7 @@ weight_decay: 0.1
 model_type: zoo_clip
 model_name: clip_pt
 vis_flag: False
-max_task: 10
+max_task: 20
 dataroot: data
 workers: 8
 validation: False
