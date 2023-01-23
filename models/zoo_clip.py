@@ -111,7 +111,9 @@ class DualPrompt(nn.Module):
                 # prompting
                 if self.task_id_bootstrap:
                     loss = 1.0 - cos_sim[:,task_id].mean()  # the cosine similarity is always le 1
-                    P_ = p[task_id].expand(len(x_querry),-1,-1)
+                    #print(p[task_id][:,0].shape)
+                    #time.sleep(10)
+                    P_ = p[task_id][:,0].expand(len(x_querry),-1,-1)
                 else:
                     if self.task_count_f > 0:
                         f_ = getattr(self, f'freq_past_{l}')
