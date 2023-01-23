@@ -314,8 +314,7 @@ def multi_head_attention_forward(
         else:
             b_q, b_k, b_v = in_proj_bias.chunk(3)
         q, k, v = _in_projection(query, key, value, q_proj_weight, k_proj_weight, v_proj_weight, b_q, b_k, b_v)
-    if vflag:
-        pass #print(q.shape,k.shape) same as above
+    
     # prep attention mask
     if attn_mask is not None:
         if attn_mask.dtype == torch.uint8:
@@ -390,9 +389,7 @@ def multi_head_attention_forward(
 
     # update source sequence length after adjustments
     src_len = k.size(1)
-    if vflag:
-        pass#print(q.shape,k.shape)
-        # exit()
+    
     # merge key padding and attention masks
     if key_padding_mask is not None:
         assert key_padding_mask.shape == (bsz, src_len), \
