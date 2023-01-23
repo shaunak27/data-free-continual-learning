@@ -106,7 +106,6 @@ class DualPrompt(nn.Module):
             n_K = nn.functional.normalize(K, dim=1)
             q = nn.functional.normalize(x_querry, dim=1).detach()
             cos_sim = torch.einsum('bj,kj->bk', q, n_K)
-            
             if train:
 
                 # prompting
@@ -125,7 +124,6 @@ class DualPrompt(nn.Module):
                     k_idx = top_k.indices
                     loss = 1.0 - cos_sim[:,k_idx].mean()  # the cosine similarity is always le 1
                     P_ = p[k_idx][:,0] ## SHAUN : This only chooses the top-1 prompt and not the top-k !!
-                    
                     # update frequency
                     f_ = getattr(self, f'freq_curr_{l}')
                     f_to_add = torch.bincount(k_idx.flatten().detach(),minlength=self.e_pool_size)
@@ -133,8 +131,6 @@ class DualPrompt(nn.Module):
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
                 k_idx = top_k.indices
-                # print(k_idx)
-                # time.sleep(500)
                 P_ = p[k_idx][:,0]
                 
             # select prompts
@@ -289,7 +285,7 @@ class ImageClassifier(nn.Module):
         print(f'Loading image classifier from {filename}')
         return utils.torch_load(filename) 
 
-def clip_pt(out_dim,prompt_flag = None,prompt_param = None,template_style = 'openai_imagenet_template' ):
+def clip_pt(out_dim,prompt_flag = None,prompt_param = None, template_style = 'openai_imagenet_template' ):
     
     #build and store ZS model from wise_ft stuff here. Return the ImageClassifier
 
@@ -297,4 +293,4 @@ def clip_pt(out_dim,prompt_flag = None,prompt_param = None,template_style = 'ope
     zeroshot_weights = get_zeroshot_classifier(image_encoder.model,template_style=template_style)
     last = ClassificationHead(normalize=True, weights=zeroshot_weights)
     delattr(image_encoder.model, 'transformer')
-    return ImageClassifier(image_encoder, last, prompt_flag=prompt_flag,prompt_param=prompt_param)
+    return ImageClassifier(image_encoder, last, prompt_flag=prompt_flag, prompt_param=prompt_param)
