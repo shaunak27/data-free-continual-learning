@@ -11,6 +11,7 @@ from .utils import download_url, check_integrity
 import random
 import torchvision.datasets as datasets
 import json 
+import time
 from models.zeroshot import imr_classnames
 VAL_HOLD = 0.1
 class iDataset(data.Dataset):
@@ -313,7 +314,9 @@ class iIMAGENET_R(iDataset):
         images_path = os.path.join(self.root, self.base_folder)
         data_dict = get_data(images_path)
         y = 0
-        mapper = json.load(open('/nethome/shalbe3/fed_prompt/data-free-continual-learning/imr_class_reverse_map.json'))
+        cwd = os.getcwd()
+        mapper_path = os.path.join(cwd,'imr_class_reverse_map.json')
+        mapper = json.load(open(mapper_path)) # TODO : add proper path that works across systems
         # names = [mapper[key] for key in data_dict.keys()]
         # print(names)
         ordered_keys = [mapper[key] for key in imr_classnames]
