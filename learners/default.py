@@ -475,7 +475,10 @@ class NormalNN(nn.Module):
                     input = input.cuda()
                     target = target.cuda()
             if task_in is None:
-                tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+                if t_idx is not None:
+                    tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
+                else:
+                    tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
                 output = model.forward(input)[:, tasks_till_now]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:

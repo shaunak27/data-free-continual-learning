@@ -208,7 +208,7 @@ class Trainer:
         if local:
             return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
         else:
-            return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local)
+            return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=t_index)
 
     def sim_eval(self, t_index, local=False, task='cka'):
 
