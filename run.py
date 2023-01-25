@@ -131,7 +131,7 @@ if __name__ == '__main__':
         print('************************************')
 
         # set random seeds
-        seed = r
+        seed = 0
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -144,10 +144,10 @@ if __name__ == '__main__':
         max_task = trainer.max_task
         if r == 0: 
             for mkey in metric_keys: 
-                avg_metrics[mkey]['global'] = np.zeros((max_task,args.repeat))
+                avg_metrics[mkey]['global'] = np.zeros((max_task,seed))
                 if (not (mkey in global_only)):
-                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.repeat))
-                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
+                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,seed))
+                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed))
 
         # train model
         if not args.only_eval_zs:
