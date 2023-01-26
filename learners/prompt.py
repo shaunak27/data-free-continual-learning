@@ -35,8 +35,9 @@ class DualPrompt(LWF):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
-        logits = logits[:,:self.valid_out_dim]
-
+        
+        tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+        logits = logits[:,tasks_till_now]
         # # bce
         # target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
         # total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod)

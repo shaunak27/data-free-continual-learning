@@ -116,7 +116,7 @@ if __name__ == '__main__':
             if start_r < args.repeat:
                 max_task = avg_metrics['acc']['global'].shape[0]
                 for mkey in metric_keys: 
-                    avg_metrics[mkey]['global'] = np.append(avg_metrics[mkey]['global'], np.zeros((max_task,args.repeat-start_r)), axis=-1)
+                    avg_metrics[mkey]['global'] = np.append(avg_metrics[mkey]['global'], np.zeros((max_task,args.repeat-start_r)), axis=-1) #TODO : make this queal to number of clients
                     if (not (mkey in global_only)):
                         avg_metrics[mkey]['pt'] = np.append(avg_metrics[mkey]['pt'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
                         avg_metrics[mkey]['pt-local'] = np.append(avg_metrics[mkey]['pt-local'], np.zeros((max_task,max_task,args.repeat-start_r)), axis=-1)
@@ -131,7 +131,7 @@ if __name__ == '__main__':
         print('************************************')
 
         # set random seeds
-        seed = r
+        seed = 0
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -144,10 +144,10 @@ if __name__ == '__main__':
         max_task = trainer.max_task
         if r == 0: 
             for mkey in metric_keys: 
-                avg_metrics[mkey]['global'] = np.zeros((max_task,args.repeat))
+                avg_metrics[mkey]['global'] = np.zeros((max_task,seed+1))
                 if (not (mkey in global_only)):
-                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.repeat))
-                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.repeat))
+                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,seed+1))
+                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed+1))
 
         # train model
         if not args.only_eval_zs:

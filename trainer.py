@@ -13,7 +13,7 @@ import learners
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
+import time
 class Trainer:
 
     def __init__(self, args, seed, metric_keys, save_keys):
@@ -75,7 +75,6 @@ class Trainer:
         if args.upper_bound_flag:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
-
         # load tasks
         class_order = np.arange(num_classes).tolist()
         class_order_logits = np.arange(num_classes).tolist()
@@ -101,7 +100,6 @@ class Trainer:
             p += inc
         self.num_tasks = len(self.tasks)
         self.task_names = [str(i+1) for i in range(self.num_tasks)]
-
         # number of tasks to perform
         if args.max_task > 0:
             self.max_task = min(args.max_task, len(self.task_names))
@@ -174,6 +172,7 @@ class Trainer:
                         'batch_size': args.batch_size,
                         'upper_bound_flag': args.upper_bound_flag,
                         'tasks': self.tasks_logits,
+                        'tasks_real': self.tasks,
                         'top_k': self.top_k,
                         'template_style':args.template_style,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
@@ -206,9 +205,9 @@ class Trainer:
             self.test_dataset.load_dataset(t_index, train=True)
         test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
         if local:
-            return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local)
+            return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
         else:
-            return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local)
+            return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=t_index)
 
     def sim_eval(self, t_index, local=False, task='cka'):
 
