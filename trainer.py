@@ -119,7 +119,8 @@ class Trainer:
             self.server_tasks_logits.append([])
             for i in range(self.n_clients):    
                 self.server_tasks[j].extend(self.tasks[i][j])
-                self.server_tasks_logits[j].extend([(int(n_classes_per_client//self.max_task)*i + x) for x in self.tasks_logits[i][j]])
+        
+            self.server_tasks_logits[j].extend([(np.arange(0,args.other_split_size*self.n_clients) +j*args.other_split_size*self.n_clients).tolist()])
         
 
         # datasets and dataloaders
