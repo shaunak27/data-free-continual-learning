@@ -592,7 +592,6 @@ class NormalNN(nn.Module):
 
     def create_model(self):
         cfg = self.config
-
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
         model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
 

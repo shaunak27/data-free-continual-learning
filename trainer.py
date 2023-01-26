@@ -26,6 +26,7 @@ class Trainer:
         self.log_dir = args.log_dir
         self.batch_size = args.batch_size
         self.workers = args.workers
+        self.n_clients = args.n_clients
         
         # model load directory
         self.model_top_dir = args.log_dir
@@ -76,8 +77,9 @@ class Trainer:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
         # load tasks
-        class_order = np.arange(num_classes).tolist()
-        class_order_logits = np.arange(num_classes).tolist()
+        n_classes_per_client = num_classes / self.n_clients
+        class_order = [np.arange(n_classes_per_client*i,n_classes_per_client*(i+1),dtype=int).tolist() for i in range(self.n_clients)]
+        class_order_logits = [np.arange(0,n_classes_per_client,dtype=int).tolist() for i in range(self.n_clients)]
         if self.seed > 0 and args.rand_split:
             print('=============================================')
             print('Shuffling....')
@@ -90,21 +92,23 @@ class Trainer:
                 random.shuffle(class_order)
             print('post-shuffle:' + str(class_order))
             print('=============================================')
-        self.tasks = []
-        self.tasks_logits = []
-        p = 0
-        while p < num_classes and (args.max_task == -1 or len(self.tasks) < args.max_task):
-            inc = args.other_split_size if p > 0 else args.first_split_size
-            self.tasks.append(class_order[p:p+inc]) ## SHAUN : shuffled indices
-            self.tasks_logits.append(class_order_logits[p:p+inc]) ## SHAUN : ordered indices
-            p += inc
-        self.num_tasks = len(self.tasks)
-        self.task_names = [str(i+1) for i in range(self.num_tasks)]
+        self.tasks = [[] for _ in range(self.n_clients)]
+        self.tasks_logits = [[] for _ in range(self.n_clients)]
+        for i in range(self.n_clients):
+            p = 0
+            while p < n_classes_per_client and (args.max_task == -1 or len(self.tasks[i]) < args.max_task):
+                inc = args.other_split_size if p > 0 else args.first_split_size
+                self.tasks[i].append(class_order[i][p:p+inc]) ## SHAUN : shuffled indices
+                self.tasks_logits[i].append(class_order_logits[i][p:p+inc]) ## SHAUN : ordered indices
+                p += inc
+        self.num_tasks_per_client = len(self.tasks[0])
+        self.task_names_per_client = [str(i+1) for i in range(self.num_tasks_per_client)]
+
         # number of tasks to perform
         if args.max_task > 0:
-            self.max_task = min(args.max_task, len(self.task_names))
+            self.max_task = min(args.max_task, len(self.task_names_per_client))
         else:
-            self.max_task = len(self.task_names)
+            self.max_task = len(self.task_names_per_client)
 
         # datasets and dataloaders
         k = 1 # number of transforms per image
@@ -114,12 +118,16 @@ class Trainer:
             resize_imnet = False
         train_transform = dataloaders.utils.get_transform(dataset=args.dataset, phase='train', aug=args.train_aug, resize_imnet=resize_imnet)
         test_transform  = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, resize_imnet=resize_imnet)
-        self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
-                            download_flag=True, transform=train_transform, 
-                            seed=self.seed, rand_split=args.rand_split, validation=args.validation)
-        self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
+        self.train_datasets = []
+        self.test_datasets = []
+        for i in range(self.n_clients):
+
+            self.train_datasets.append(Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks[i],
+                                download_flag=True, transform=train_transform, 
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation))
+            self.test_datasets.append(Dataset(args.dataroot, train=False, tasks=self.tasks[i],
                                 download_flag=False, transform=test_transform, 
-                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation))
 
         # get dataset stats
         if False:
@@ -148,7 +156,7 @@ class Trainer:
         self.add_dim = 0
 
         # Prepare the self.learner (model)
-        self.learner_config = {'num_classes': num_classes,
+        self.learner_configs = [{'num_classes': num_classes,
                         'lr': args.lr,
                         'debug_mode': args.debug_mode == 1,
                         'momentum': args.momentum,
@@ -171,15 +179,15 @@ class Trainer:
                         'DW': args.DW,
                         'batch_size': args.batch_size,
                         'upper_bound_flag': args.upper_bound_flag,
-                        'tasks': self.tasks_logits,
-                        'tasks_real': self.tasks,
+                        'tasks': self.tasks_logits[idx],
+                        'tasks_real': self.tasks[idx],
                         'top_k': self.top_k,
                         'template_style':args.template_style,
-                        'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
-                        }
-        print(self.learner_config)
+                        'prompt_param':[self.num_tasks_per_client,args.prompt_param] #SHAUN : Important step
+                        } for idx in range(self.n_clients)]
+        print(self.learner_configs)
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
-        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
+        self.learners = [learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_configs[idx]) for idx in range(self.n_clients)] ## SHAUNAK : Initialize Learner 
         ##SHAUN : Jump back to run.py
 
     def train_vis(self, vis_dir, name, t_index, pre=False, embedding=None):
@@ -194,152 +202,153 @@ class Trainer:
         embedding = self.learner.visualization(test_loader, vis_dir, name, t_index, embedding)
         return embedding
 
-    def task_eval(self, t_index, local=False, task='acc', all_tasks=False):
+    def task_eval(self, t_index, local=False, task='acc', all_tasks=False,client=0):
 
-        val_name = self.task_names[t_index]
+        val_name = self.task_names_per_client[t_index]
         print('validation split name:', val_name)
         
         # eval
         if all_tasks:
-            self.test_dataset.load_dataset(t_index, train=False)
+            self.test_datasets[client].load_dataset(t_index, train=False)
         else:
-            self.test_dataset.load_dataset(t_index, train=True)
-        test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+            self.test_datasets[client].load_dataset(t_index, train=True)
+        test_loader  = DataLoader(self.test_datasets[client], batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
         if local:
-            return self.learner.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
+            return self.learners[client].validation(test_loader, task_in = self.tasks_logits[client][t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
         else:
-            return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=t_index)
+            return self.learners[client].validation(test_loader, task_metric=task, relabel_clusters = local, t_idx=t_index)
 
-    def sim_eval(self, t_index, local=False, task='cka'):
+    def sim_eval(self, t_index, local=False, task='cka',client=0):
 
-        val_name = self.task_names[t_index]
+        val_name = self.task_names_per_client[t_index]
         print('Feature Sim task: ', val_name)
         
         # eval
         if local:
-            self.test_dataset.load_dataset(t_index - 1, train=False)
+            self.test_datasets[client].load_dataset(t_index - 1, train=False)
         else:
-            self.test_dataset.load_dataset(t_index - 1, train=False)
+            self.test_datasets[client].load_dataset(t_index - 1, train=False)
         
-        test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+        test_loader  = DataLoader(self.test_datasets[client], batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
         
         if task == 'cka':
-            return self.learner.cka_eval(test_loader)
+            return self.learners[client].cka_eval(test_loader)
         else:
             return -1
 
     def train(self, avg_metrics):
-    
-        # temporary results saving
-        temp_table = {}
-        for mkey in self.metric_keys: temp_table[mkey] = []
-        temp_dir = self.log_dir + '/csv/'
-        if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+        temp_table = []
+        temp_dir = []
+        for idx in range(self.n_clients):    
+            # temporary results saving
+            temp_table.append({})
+            for mkey in self.metric_keys: temp_table[idx][mkey] = []
+            temp_dir.append(self.log_dir + f'client_{idx}/csv/')
+            if not os.path.exists(temp_dir[idx]): os.makedirs(temp_dir[idx])
 
-        # for each task
+            #print('======================',f'Client {idx+1}' , '=======================')
+            # for each task
         for i in range(self.max_task): ## SHAUN : See learner config
-
-            # save current task index
-            self.current_t_index = i
-
-            # save name for learner specific eval
-            if self.vis_flag:
-                vis_dir = self.log_dir + '/visualizations/task-'+self.task_names[i]+'/'
-                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-            else:
-                vis_dir = None
-
-            # set seeds
             random.seed(self.seed*100 + i)
             np.random.seed(self.seed*100 + i)
             torch.manual_seed(self.seed*100 + i)
             torch.cuda.manual_seed(self.seed*100 + i)
 
             # print name
-            train_name = self.task_names[i]
+            train_name = self.task_names_per_client[i]
             print('======================', train_name, '=======================')
+            for idx in range(self.n_clients):
+                # save current task index
+                self.current_t_index = i
 
-            # load dataset for task
-            task = self.tasks_logits[i]
-            if self.oracle_flag:
-                self.train_dataset.load_dataset(i, train=False)
-                self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-                self.add_dim += len(task)
-            else:
-                self.train_dataset.load_dataset(i, train=True) ##SHAUN : See dataloader.py
-                self.add_dim = len(task)
+                # save name for learner specific eval
+                if self.vis_flag:
+                    vis_dir = self.log_dir + 'client_{idx}/visualizations/task-'+self.task_names_per_client[i]+'/'
+                    if not os.path.exists(vis_dir): os.makedirs(vis_dir)
+                else:
+                    vis_dir = None
 
-            # set task id for model (needed for prompting)
-            try:
-                self.learner.model.module.task_id = i
-            except:
-                self.learner.model.task_id = i
+                print('======================',f'Client {idx+1}, Task {train_name}' , '=======================')
+                # load dataset for task
+                task = self.tasks_logits[idx][i]
+                if self.oracle_flag:
+                    self.train_datasets[idx].load_dataset(i, train=False)
+                    self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_configs[idx])
+                    self.add_dim += len(task)
+                else:
+                    self.train_datasets[idx].load_dataset(i, train=True) ##SHAUN : See dataloader.py
+                    self.add_dim = len(task)
 
-            # add valid class to classifier
-            self.learner.add_valid_output_dim(self.add_dim)
-
-            # load dataset with memory
-            self.train_dataset.append_coreset(only=False)
-
-            # load dataloader
-            train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
-
-            # # T-sne plots
-            # if self.vis_flag:
-            #     self.train_vis(vis_dir, 'pre', i, pre=True)
-            self.learner.debug_dir = vis_dir
-            self.learner.debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
-
-            # frequency table process
-            if i > 0:
+                # set task id for model (needed for prompting)
                 try:
-                    if self.learner.model.module.prompt is not None:
-                        self.learner.model.module.prompt.process_frequency()
+                    self.learners[idx].model.module.task_id = i
                 except:
-                    if self.learner.model.prompt is not None:
-                        self.learner.model.prompt.process_frequency()
+                    self.learners[idx].model.task_id = i
 
-            # learn
-            self.test_dataset.load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
-            test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-            if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-            
-            avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader) ## SHAUN : Jump to LWF
+                # add valid class to classifier
+                self.learners[idx].add_valid_output_dim(self.add_dim)
 
-            # save model
-            self.learner.save_model(model_save_dir)
+                # load dataset with memory
+                self.train_datasets[idx].append_coreset(only=False)
 
-            # T-sne plots
-            if self.vis_flag:
-                self.train_vis(vis_dir, 'post', i)
-            
-            # evaluate acc
-            acc_table = []
-            acc_table_ssl = []
-            self.reset_cluster_labels = True
-            for j in range(i+1):
-                acc_table.append(self.task_eval(j))
-            # temp_table['acc'].append(np.mean(np.asarray(acc_table)))
-            temp_table['acc'].append(self.task_eval(i, all_tasks=True))
-            temp_table['mem'].append(self.learner.count_memory(self.dataset_size))
+                # load dataloader
+                train_loader = DataLoader(self.train_datasets[idx], batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
 
-            # save temporary results
-            for mkey in self.metric_keys:
-                save_file = temp_dir + mkey + '.csv'
-                np.savetxt(save_file, np.asarray(temp_table[mkey]), delimiter=",", fmt='%.2f')  
+                # # T-sne plots
+                # if self.vis_flag:
+                #     self.train_vis(vis_dir, 'pre', i, pre=True)
+                self.learners[idx].debug_dir = vis_dir
+                self.learners[idx].debug_model_dir = self.model_top_dir + f'client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'
 
-            if avg_train_time is not None: avg_metrics['time']['global'][i] = avg_train_time
-            avg_metrics['mem']['global'][:] = self.learner.count_memory(self.dataset_size)
+                # frequency table process
+                if i > 0:
+                    try:
+                        if self.learners[idx].model.module.prompt is not None:
+                            self.learners[idx].model.module.prompt.process_frequency()
+                    except:
+                        if self.learners[idx].model.prompt is not None:
+                            self.learners[idx].model.prompt.process_frequency()
 
-            # get other metrics
-            if not self.oracle_flag:
-                avg_metrics['plastic']['global'][i] = self.task_eval(i, local=True)
-                til = 0
+                # learn
+                self.test_datasets[idx].load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
+                test_loader  = DataLoader(self.test_datasets[idx], batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+                model_save_dir = self.model_top_dir + f'client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names_per_client[i]+'/'
+                if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
+                
+                avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
+
+                # save model
+                self.learners[idx].save_model(model_save_dir)
+
+                # T-sne plots
+                if self.vis_flag:
+                    self.train_vis(vis_dir, 'post', i)
+                
+                # evaluate acc
+                acc_table = []
+                self.reset_cluster_labels = True
                 for j in range(i+1):
-                    til += self.task_eval(j, local=True)
-                avg_metrics['til']['global'][i] = til / (i+1)
-                if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i] = self.sim_eval(i, local=False)
+                    acc_table.append(self.task_eval(j,client=idx))
+                # temp_table['acc'].append(np.mean(np.asarray(acc_table)))
+                temp_table[idx]['acc'].append(self.task_eval(i, all_tasks=True,client=idx))
+                temp_table[idx]['mem'].append(self.learners[idx].count_memory(self.dataset_size))
+
+                # save temporary results
+                for mkey in self.metric_keys:
+                    save_file = temp_dir[idx] + mkey + '.csv'
+                    np.savetxt(save_file, np.asarray(temp_table[idx][mkey]), delimiter=",", fmt='%.2f')  
+
+                if avg_train_time is not None: avg_metrics['time']['global'][i][idx] = avg_train_time
+                avg_metrics['mem']['global'][:][idx] = self.learners[idx].count_memory(self.dataset_size)
+
+                # get other metrics
+                if not self.oracle_flag:
+                    avg_metrics['plastic']['global'][i][idx] = self.task_eval(i, local=True,client=idx)
+                    til = 0
+                    for j in range(i+1):
+                        til += self.task_eval(j, local=True,client=idx)
+                    avg_metrics['til']['global'][i][idx] = til / (i+1)
+                    if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i][idx] = self.sim_eval(i, local=False,client=idx)
 
         return avg_metrics 
     
@@ -354,10 +363,10 @@ class Trainer:
         # Customize this part for a different performance metric
         avg_acc_history = [0] * self.max_task
         for i in range(self.max_task):
-            train_name = self.task_names[i]
+            train_name = self.task_names_per_client[i]
             cls_acc_sum = 0
             for j in range(i+1):
-                val_name = self.task_names[j]
+                val_name = self.task_names_per_client[j]
                 cls_acc_sum += acc_table[val_name][train_name]
                 avg_acc_pt[j,i,self.seed] = acc_table[val_name][train_name]
                 avg_acc_pt_local[j,i,self.seed] = acc_table_pt[val_name][train_name]

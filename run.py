@@ -50,6 +50,7 @@ def create_args():
                          help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
+    parser.add_argument('--n_clients',default=1,type=int,help='Number of clients')
     return parser
 
 def get_args(argv):
@@ -144,15 +145,15 @@ if __name__ == '__main__':
         max_task = trainer.max_task
         if r == 0: 
             for mkey in metric_keys: 
-                avg_metrics[mkey]['global'] = np.zeros((max_task,seed+1))
+                avg_metrics[mkey]['global'] = np.zeros((max_task,args.n_clients)) #TODO : should n_clientts replace seed
                 if (not (mkey in global_only)):
-                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,seed+1))
-                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed+1))
+                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.n_clients))
+                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.n_clients))
 
         # train model
         if not args.only_eval_zs:
             avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
-            avg_metrics = trainer.evaluate(avg_metrics)
+            #avg_metrics = trainer.evaluate(avg_metrics)
         else:
             avg_metrics = trainer.evaluate_zs(avg_metrics)
         # evaluate model

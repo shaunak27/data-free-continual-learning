@@ -289,7 +289,7 @@ class ImageClassifier(nn.Module):
         print(f'Loading image classifier from {filename}')
         return utils.torch_load(filename) 
 
-def clip_pt(out_dim,prompt_flag = None,prompt_param = None, template_style = 'openai_imagenet_template' ):
+def clip_pt(out_dim, prompt_flag = None, prompt_param = None, template_style = 'openai_imagenet_template' ):
     
     #build and store ZS model from wise_ft stuff here. Return the ImageClassifier
 
