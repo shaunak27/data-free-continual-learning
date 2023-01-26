@@ -50,7 +50,7 @@ def create_args():
                          help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
-    parser.add_argument('--n_clients',default=1,type=int,help='Number of clients')
+    parser.add_argument('--n_clients',default=4,type=int,help='Number of clients')
     return parser
 
 def get_args(argv):

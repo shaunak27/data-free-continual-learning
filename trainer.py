@@ -14,6 +14,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import time
+import copy
 class Trainer:
 
     def __init__(self, args, seed, metric_keys, save_keys):
@@ -94,6 +95,7 @@ class Trainer:
             print('=============================================')
         self.tasks = [[] for _ in range(self.n_clients)]
         self.tasks_logits = [[] for _ in range(self.n_clients)]
+        
         for i in range(self.n_clients):
             p = 0
             while p < n_classes_per_client and (args.max_task == -1 or len(self.tasks[i]) < args.max_task):
@@ -103,12 +105,22 @@ class Trainer:
                 p += inc
         self.num_tasks_per_client = len(self.tasks[0])
         self.task_names_per_client = [str(i+1) for i in range(self.num_tasks_per_client)]
-
+         
         # number of tasks to perform
         if args.max_task > 0:
             self.max_task = min(args.max_task, len(self.task_names_per_client))
         else:
             self.max_task = len(self.task_names_per_client)
+
+        self.server_tasks = []
+        self.server_tasks_logits = []
+        for j in range(self.max_task):
+            self.server_tasks.append([])
+            self.server_tasks_logits.append([])
+            for i in range(self.n_clients):    
+                self.server_tasks[j].extend(self.tasks[i][j])
+                self.server_tasks_logits[j].extend([(int(n_classes_per_client//self.max_task)*i + x) for x in self.tasks_logits[i][j]])
+        
 
         # datasets and dataloaders
         k = 1 # number of transforms per image
@@ -128,7 +140,11 @@ class Trainer:
             self.test_datasets.append(Dataset(args.dataroot, train=False, tasks=self.tasks[i],
                                 download_flag=False, transform=test_transform, 
                                 seed=self.seed, rand_split=args.rand_split, validation=args.validation))
-
+        server_prompts = copy.deepcopy(args.prompt_param)
+        server_prompts[0] = self.n_clients*server_prompts[0]
+        self.server_test_dataset = Dataset(args.dataroot, train=False, tasks=self.server_tasks,
+                                download_flag=False, transform=test_transform, 
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
         # get dataset stats
         if False:
             train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=False, num_workers=8)
@@ -185,9 +201,42 @@ class Trainer:
                         'template_style':args.template_style,
                         'prompt_param':[self.num_tasks_per_client,args.prompt_param] #SHAUN : Important step
                         } for idx in range(self.n_clients)]
+
+        
+        self.server_config = {'num_classes': num_classes,
+                        'lr': args.lr,
+                        'debug_mode': args.debug_mode == 1,
+                        'momentum': args.momentum,
+                        'weight_decay': args.weight_decay,
+                        'schedule': args.schedule,
+                        'freeze_encoder' : args.freeze_encoder,
+                        'freeze_last' : args.freeze_last,
+                        'schedule_type': args.schedule_type,
+                        'model_type': args.model_type,
+                        'model_name': args.model_name,
+                        'optimizer': args.optimizer,
+                        'gpuid': args.gpuid,
+                        'memory': args.memory,
+                        'temp': args.temp,
+                        'out_dim': num_classes,
+                        'overwrite': args.overwrite == 1,
+                        'mu': args.mu,
+                        'beta': args.beta,
+                        'eps': args.eps,
+                        'DW': args.DW,
+                        'batch_size': args.batch_size,
+                        'upper_bound_flag': args.upper_bound_flag,
+                        'tasks': self.server_tasks_logits,
+                        'tasks_real': self.server_tasks,
+                        'top_k': self.top_k,
+                        'template_style':args.template_style,
+                        'prompt_param':[self.num_tasks_per_client,server_prompts] #SHAUN : Important step
+                        } 
         print(self.learner_configs)
+        print(self.server_config)
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learners = [learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_configs[idx]) for idx in range(self.n_clients)] ## SHAUNAK : Initialize Learner 
+        self.server = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.server_config) ## SHAUNAK : Initialize Server
         ##SHAUN : Jump back to run.py
 
     def train_vis(self, vis_dir, name, t_index, pre=False, embedding=None):
@@ -218,6 +267,22 @@ class Trainer:
         else:
             return self.learners[client].validation(test_loader, task_metric=task, relabel_clusters = local, t_idx=t_index)
 
+    def server_task_eval(self, t_index, local=False, task='acc', all_tasks=False):
+
+        val_name = self.task_names_per_client[t_index]
+        print('Server : validation split name:', val_name)
+        
+        # eval
+        if all_tasks:
+            self.server_test_dataset.load_dataset(t_index, train=False)
+        else:
+            self.server_test_dataset.load_dataset(t_index, train=True)
+        test_loader  = DataLoader(self.server_test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+        if local:
+            return self.server.validation(test_loader, task_in = self.server_tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
+        else:
+            return self.server.validation(test_loader, task_metric=task, relabel_clusters = local, t_idx=t_index)
+
     def sim_eval(self, t_index, local=False, task='cka',client=0):
 
         val_name = self.task_names_per_client[t_index]
@@ -236,6 +301,24 @@ class Trainer:
         else:
             return -1
 
+    def communicate(self):
+        with torch.no_grad():
+            for key in self.server.model.state_dict().keys():
+                if 'last' in key:
+                    temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
+                    for i in range(self.n_clients):
+                        temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
+                    self.server.model.state_dict()[key].data.copy_(temp)
+                if 'prompt' not in key:
+                    continue
+                temp = []
+                for i in range(self.n_clients):
+                    temp.append(self.learners[i].model.state_dict()[key])
+                self.server.model.state_dict()[key].data.copy_(torch.cat(temp))
+        print('Communication successful !')
+                
+        
+
     def train(self, avg_metrics):
         temp_table = []
         temp_dir = []
@@ -243,11 +326,15 @@ class Trainer:
             # temporary results saving
             temp_table.append({})
             for mkey in self.metric_keys: temp_table[idx][mkey] = []
-            temp_dir.append(self.log_dir + f'client_{idx}/csv/')
+            temp_dir.append(self.log_dir + f'_client_{idx}/csv/')
             if not os.path.exists(temp_dir[idx]): os.makedirs(temp_dir[idx])
 
             #print('======================',f'Client {idx+1}' , '=======================')
             # for each task
+        server_temp_table = {}
+        for mkey in self.metric_keys: server_temp_table[mkey] = []
+        server_temp_dir = self.log_dir + f'_server/csv/'
+        if not os.path.exists(server_temp_dir): os.makedirs(server_temp_dir)
         for i in range(self.max_task): ## SHAUN : See learner config
             random.seed(self.seed*100 + i)
             np.random.seed(self.seed*100 + i)
@@ -349,7 +436,15 @@ class Trainer:
                         til += self.task_eval(j, local=True,client=idx)
                     avg_metrics['til']['global'][i][idx] = til / (i+1)
                     if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i][idx] = self.sim_eval(i, local=False,client=idx)
+            self.communicate()
+            server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True))
+            server_temp_table['mem'].append(self.server.count_memory(self.dataset_size))
 
+            # save temporary results
+            for mkey in self.metric_keys:
+                save_file = server_temp_dir + mkey + '.csv'
+                np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f')  
+        
         return avg_metrics 
     
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt, final_acc):
