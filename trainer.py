@@ -350,7 +350,7 @@ class Trainer:
 
                 # save name for learner specific eval
                 if self.vis_flag:
-                    vis_dir = self.log_dir + 'client_{idx}/visualizations/task-'+self.task_names_per_client[i]+'/'
+                    vis_dir = self.log_dir + '_client_{idx}/visualizations/task-'+self.task_names_per_client[i]+'/'
                     if not os.path.exists(vis_dir): os.makedirs(vis_dir)
                 else:
                     vis_dir = None
@@ -385,7 +385,7 @@ class Trainer:
                 # if self.vis_flag:
                 #     self.train_vis(vis_dir, 'pre', i, pre=True)
                 self.learners[idx].debug_dir = vis_dir
-                self.learners[idx].debug_model_dir = self.model_top_dir + f'client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'
+                self.learners[idx].debug_model_dir = self.model_top_dir + f'_client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'
 
                 # frequency table process
                 if i > 0:
@@ -399,7 +399,7 @@ class Trainer:
                 # learn
                 self.test_datasets[idx].load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
                 test_loader  = DataLoader(self.test_datasets[idx], batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-                model_save_dir = self.model_top_dir + f'client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names_per_client[i]+'/'
+                model_save_dir = self.model_top_dir + f'_client_{idx}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names_per_client[i]+'/'
                 if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
                 
                 avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
