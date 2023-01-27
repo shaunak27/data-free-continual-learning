@@ -1,20 +1,18 @@
 # bash experiments/imagenet-r.sh
 # experiment settings
-SPLIT=10
-DATASET=ImageNet_R
-N_CLASS=200
+SPLIT=23
+DATASET=DomainNet
+N_CLASS=345
 
 # save directory
-DATE=clip_domainnet_l2p_multilayer
+DATE=fedclip_domainnet_l2p_multilayer
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
 GPUID='0 1'
-CONFIG_VIT=configs/imnet-r_vit.yaml
-CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
-CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
 CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
 CONFIG_CLIP_DOMAINNET=configs/domainnet_clip_prompt.yaml
+CONFIG_CLIP_DOMAINNET_FED=configs/domainnet_clip_prompt_fed.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
@@ -120,6 +118,6 @@ MU=1
 #     --prompt_param 10 20 6 -1 --freeze_last
 
 # # # clip ZS with prompting
-python -u run.py --config $CONFIG_CLIP_DOMAINNET --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P --log_dir ${OUTDIR}/clip/l2p_multilayer --template_style domainnet_template \
-    --prompt_param 100 20 1 -1 --mu $MU
+python -u run.py --config $CONFIG_CLIP_DOMAINNET_FED --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P --log_dir ${OUTDIR}/fednn --template_style domainnet_template \
+    --prompt_param 100 20 1 -1 --mu $MU --n_clients 3
