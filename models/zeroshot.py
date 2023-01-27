@@ -32,6 +32,17 @@ imr_classnames = ['goldfish', 'great white shark', 'hammerhead', 'stingray', 'he
 'lemon', 'pineapple', 'banana', 'pomegranate', 'pizza', 'burrito', 'espresso', 'volcano', 'baseball player',
 'scuba diver', 'acorn']
 
+def get_dnet_classnames():
+    cwd = os.getcwd()
+    path = os.path.join(cwd,'data/domainnet/anns/clipart_train.txt')
+    f  = open(path)
+    lines = f.readlines()
+    seq = [i.split()[0].split('/')[1] for i in lines]  
+    seen = set()
+    seen_add = seen.add
+    class_list = [x.replace('_',' ').replace('-',' ').lower() for x in seq if not (x in seen or seen_add(x))]
+    return class_list
+
 def get_zeroshot_classifier(clip_model,template_style='openai_imagenet_template'):
 
     template = getattr(templates, template_style)
@@ -40,11 +51,14 @@ def get_zeroshot_classifier(clip_model,template_style='openai_imagenet_template'
     device = "cuda"
     clip_model.eval()
     clip_model.to(device)
-
+    if 'domainnet' not in template_style:
+        classnames = imr_classnames
+    else:
+        classnames = get_dnet_classnames()
     print('Getting zeroshot weights.')
     with torch.no_grad():
         zeroshot_weights = []
-        for classname in tqdm(imr_classnames):
+        for classname in tqdm(classnames):
             texts = []
             for t in template:
                 texts.append(t(classname))

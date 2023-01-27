@@ -1,3 +1,4 @@
 from .openai_imagenet_template import openai_imagenet_template
 from .simple_template import simple_template
 from .gibberish_template import gibberish_template
+from .domainnet_template import domainnet_template

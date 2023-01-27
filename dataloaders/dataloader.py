@@ -378,7 +378,7 @@ class iIMAGENET_R(iDataset):
 
 
 class iDOMAIN_NET(iIMAGENET_R):
-    base_folder = 'DomainNet'
+    base_folder = 'domainnet'
     im_size=224
     nch=3
     def load(self):
@@ -386,7 +386,15 @@ class iDOMAIN_NET(iIMAGENET_R):
         images_path = os.path.join(self.root, self.base_folder)
         data_dict = get_data_deep(images_path)
         y = 0
-        for key in data_dict.keys():
+        cwd = os.getcwd()
+        path = os.path.join(cwd,'data/domainnet/anns/clipart_train.txt')
+        f  = open(path)
+        lines = f.readlines()
+        seq = [i.split()[0].split('/')[1] for i in lines]  
+        seen = set()
+        seen_add = seen.add
+        class_list = [x for x in seq if not (x in seen or seen_add(x))]
+        for key in class_list:
             num_y = len(data_dict[key])
             self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
             self.targets.extend([y for i in np.arange(0,num_y)])
@@ -407,7 +415,7 @@ class iDOMAIN_NET(iIMAGENET_R):
 def get_data(root_images):
 
     import glob
-    files = glob.glob(root_images+'/*/*.jpg')
+    files = glob.glob(root_images+'/*/*.*')
     data = {}
     for path in files:
         y = os.path.basename(os.path.dirname(path))
@@ -420,7 +428,7 @@ def get_data(root_images):
 def get_data_deep(root_images):
 
     import glob
-    files = glob.glob(root_images+'/*/*/*.jpg')
+    files = glob.glob(root_images+'/*/*/*.*')
     data = {}
     for path in files:
         y = os.path.basename(os.path.dirname(path))
