@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import copy
 from utils.schedulers import CosineSchedule
+import time
 
 class NormalNN(nn.Module):
     '''
@@ -33,6 +34,7 @@ class NormalNN(nn.Module):
         self.batch_size = learner_config['batch_size']
         self.previous_teacher = None
         self.tasks = learner_config['tasks']
+        self.tasks_real = learner_config['tasks_real']
         self.top_k = learner_config['top_k']
 
         # replay memory parameters
@@ -125,7 +127,6 @@ class NormalNN(nn.Module):
                     
                     # model update
                     loss, output= self.update_model(x, y)
-
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
                     batch_timer.tic()
@@ -200,6 +201,8 @@ class NormalNN(nn.Module):
         else:
             dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         logits = self.forward(inputs)
+        #past_tasks = [j for sub in self.tasks_real[:self.task_count] for j in sub]
+        # print(logits.shape) 
         total_loss = self.criterion(logits, targets.long(), dw_cls)
 
         self.optimizer.zero_grad()
@@ -450,7 +453,7 @@ class NormalNN(nn.Module):
             return -1
 
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False):
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False,t_idx=None):
 
         if model is None:
             if task_metric == 'acc':
@@ -472,7 +475,11 @@ class NormalNN(nn.Module):
                     input = input.cuda()
                     target = target.cuda()
             if task_in is None:
-                output = model.forward(input)[:, :self.valid_out_dim]
+                if t_idx is not None:
+                    tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
+                else:
+                    tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+                output = model.forward(input)[:, tasks_till_now]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 mask = target >= task_in[0]
@@ -489,10 +496,15 @@ class NormalNN(nn.Module):
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
                         if task_global:
-                            output = model.forward(input)[:, :self.valid_out_dim]
+                            tasks_till_now = [j for sub in self.tasks_real[:self.task_count] for j in sub]
+                            output = model.forward(input)[:, tasks_till_now]
                             acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                         else:
-                            output = model.forward(input)[:, task_in]
+                            #tasks_till_now = [j for sub in self.tasks_real[:self.task_count] for j in sub]
+                            if t_idx is not None:
+                                output = model.forward(input)[:, self.tasks_real[t_idx]]
+                            else:
+                                output = model.forward(input)[:, self.tasks_real[self.task_count-1]]
                             acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
             
         model.train(orig_mode)
@@ -594,7 +606,8 @@ class NormalNN(nn.Module):
         self.model.apply(weight_reset)
 
     def forward(self, x):
-        return self.model.forward(x)[:, :self.valid_out_dim]
+        tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+        return self.model.forward(x)[:, tasks_till_now]
 
     def predict(self, inputs):
         self.model.eval()

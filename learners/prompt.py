@@ -35,8 +35,9 @@ class DualPrompt(LWF):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
-        logits = logits[:,:self.valid_out_dim]
-
+        
+        tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+        logits = logits[:,tasks_till_now]
         # # bce
         # target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
         # total_loss = self.ce_loss(torch.sigmoid(logits[:,self.last_valid_out_dim:self.valid_out_dim]), target_mod)
@@ -48,12 +49,10 @@ class DualPrompt(LWF):
 
         # ce loss
         total_loss = total_loss + self.mu * prompt_loss.sum()
-
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
-
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits
 
     # sets model optimizers
@@ -101,9 +100,11 @@ class DualPrompt(LWF):
     def create_model(self):
         cfg = self.config
 
-        # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
-
+        # Define the backbone (MLP, LeNet, VGG, ResNet, CLIP ... etc) of model
+        if 'clip' in cfg['model_name']:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
+        else:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'dual', prompt_param=self.prompt_param)
         return model
 
     def cuda(self):
@@ -189,6 +190,7 @@ class DualPromptNEW(DualPrompt):
         # step
         self.optimizer.zero_grad()
         total_loss.backward()
+        
         self.optimizer.step()
 
         return total_loss.detach(), prompt_loss.sum().detach(), torch.zeros((1,), requires_grad=True).cuda().detach(), logits_new[:,:self.valid_out_dim]
@@ -203,8 +205,10 @@ class L2P(DualPrompt):
     def create_model(self):
         cfg = self.config
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
-
+        if 'clip' in cfg['model_name']:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
+        else:
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
         return model
 
 

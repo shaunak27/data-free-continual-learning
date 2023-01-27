@@ -95,7 +95,7 @@ class LWF(NormalNN):
                     
                     # if KD
                     if self.replay:
-                        allowed_predictions = list(range(self.last_valid_out_dim))
+                        allowed_predictions =  [j for sub in self.tasks_real[:self.task_count] for j in sub]#list(range(self.last_valid_out_dim))
                         y_hat, _ = self.previous_teacher.generate_scores(x, allowed_predictions=allowed_predictions)
                     else:
                         y_hat = None
@@ -169,7 +169,7 @@ class LWF(NormalNN):
     def accumulate_block_memory(self, train_loader):
         pass
 
-    def update_model(self, inputs, targets, target_KD = None):
+    def update_model(self, inputs, targets, target_KD = None):  ##TODO : Handle last_valid_out_dim and stuff for shuffled tasks
         
         total_loss = torch.zeros((1,), requires_grad=True).cuda()
 
