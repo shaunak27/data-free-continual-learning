@@ -5,7 +5,7 @@ DATASET=DomainNet
 N_CLASS=345
 
 # save directory
-DATE=clip_domainnet_l2p_multilayer_centralized_both
+DATE=clip_domainnet_l2p_multilayer_centralized_onlyprompt
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -122,4 +122,4 @@ MU=1
 # # # clip ZS with prompting
 python -u run.py --config $CONFIG_CLIP_DOMAINNET --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P --log_dir ${OUTDIR}/clip/l2p_multilayer --template_style domainnet_template \
-    --prompt_param 100 20 1 -1 --mu $MU
+    --prompt_param 100 20 1 -1 --mu $MU --freeze_last

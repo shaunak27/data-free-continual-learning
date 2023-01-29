@@ -76,8 +76,15 @@ class Trainer:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
         # load tasks
-        class_order = np.arange(num_classes).tolist()
-        class_order_logits = np.arange(num_classes).tolist()
+        n_clients = 3
+        class_order = []
+        class_order_logits = []
+        for i in range(args.max_task):
+            order = np.arange(0,args.first_split_size//n_clients) + (args.first_split_size//n_clients)*i
+            for j in range(n_clients):
+                class_order.extend((order+(args.first_split_size//n_clients)*args.max_task*j).tolist())
+        #     class_order_logits.append((np.arange(0,args.other_split_size*n_clients)+50*i))
+        class_order_logits = np.arange(0,num_classes).tolist()
         if self.seed > 0 and args.rand_split:
             print('=============================================')
             print('Shuffling....')
@@ -177,6 +184,7 @@ class Trainer:
                         'template_style':args.template_style,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }
+        print(self.learner_config)
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
         ##SHAUN : Jump back to run.py
