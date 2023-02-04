@@ -1,0 +1,21 @@
+dataset: DomainNet
+first_split_size: 23
+other_split_size: 23
+schedule:
+- 30
+schedule_type: decay
+batch_size: 96
+optimizer: Adam
+lr: 0.003
+momentum: 0.9
+weight_decay: 0
+model_type: zoo_clip
+model_name: clip_pt
+vis_flag: False
+max_task: 5
+dataroot: data
+workers: 8
+validation: False
+train_aug: True
+rand_split: True
+freeze_encoder: True
