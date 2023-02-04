@@ -180,7 +180,7 @@ class L2P(DualPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:
-            self.e_layers = [0,1,3,4,5]
+            self.e_layers = [0,1,3,4,5,6,7,8]
         else:
             self.e_layers = [0]
 

@@ -4,7 +4,7 @@ other_split_size: 23
 schedule:
 - 30
 schedule_type: decay
-batch_size: 64
+batch_size: 96
 optimizer: Adam
 lr: 0.003
 momentum: 0.9

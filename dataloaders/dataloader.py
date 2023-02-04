@@ -405,9 +405,9 @@ class iDOMAIN_NET(iIMAGENET_R):
         random.seed(0)
         random.shuffle(index_sample)
         if self.train or self.validation:
-            index_sample = index_sample[:int(0.08*n_data)]
+            index_sample = index_sample[:int(0.8*n_data)]
         else:
-            index_sample = index_sample[int(0.08*n_data):int(0.1*n_data)]
+            index_sample = index_sample[int(0.8*n_data):]
 
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]

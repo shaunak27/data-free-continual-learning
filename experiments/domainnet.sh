@@ -5,11 +5,11 @@ DATASET=DomainNet
 N_CLASS=345
 
 # save directory
-DATE=fedclip_domainnet_l2p_multilayer
+DATE=fedclip_domainnet_l2p_multilayer_v2
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
-GPUID='0 1'
+GPUID='0 1 2 3'
 CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
 CONFIG_CLIP_DOMAINNET=configs/domainnet_clip_prompt.yaml
 CONFIG_CLIP_DOMAINNET_FED=configs/domainnet_clip_prompt_fed.yaml
