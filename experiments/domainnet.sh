@@ -5,7 +5,7 @@ DATASET=DomainNet
 N_CLASS=345
 
 # save directory
-DATE=fedclip_domainnet_l2p_multilayer_v2
+DATE=centralized_clip_domainnet_l2p_multilayer_v2
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs

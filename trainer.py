@@ -236,7 +236,8 @@ class Trainer:
             return -1
 
     def train(self, avg_metrics):
-    
+        print(self.learner.model.state_dict().keys())
+        time.sleep(100)
         # temporary results saving
         temp_table = {}
         for mkey in self.metric_keys: temp_table[mkey] = []
