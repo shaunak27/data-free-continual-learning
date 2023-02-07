@@ -2,9 +2,9 @@ dataset: DomainNet
 first_split_size: 23
 other_split_size: 23
 schedule:
-- 30
+- 5
 schedule_type: decay
-batch_size: 96
+batch_size: 32
 optimizer: Adam
 lr: 0.003
 momentum: 0.9

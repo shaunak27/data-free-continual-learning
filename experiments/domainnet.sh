@@ -5,7 +5,7 @@ DATASET=DomainNet
 N_CLASS=345
 
 # save directory
-DATE=fedclip_domainnet_l2p_multilayer_v2
+DATE=trial_v9
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -120,4 +120,4 @@ MU=1
 # # # clip ZS with prompting
 python -u run.py --config $CONFIG_CLIP_DOMAINNET_FED --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P --log_dir ${OUTDIR}/fednn --template_style domainnet_template \
-    --prompt_param 100 20 1 -1 --mu $MU --n_clients 3
+    --prompt_param 100 20 1 -1 --mu $MU --n_clients 3 --freeze_last

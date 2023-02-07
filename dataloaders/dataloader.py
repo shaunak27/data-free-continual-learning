@@ -316,7 +316,7 @@ class iIMAGENET_R(iDataset):
         y = 0
         cwd = os.getcwd()
         mapper_path = os.path.join(cwd,'imr_class_reverse_map.json')
-        mapper = json.load(open(mapper_path)) # TODO : add proper path that works across systems
+        mapper = json.load(open(mapper_path))
         # names = [mapper[key] for key in data_dict.keys()]
         # print(names)
         ordered_keys = [mapper[key] for key in imr_classnames]
@@ -405,9 +405,9 @@ class iDOMAIN_NET(iIMAGENET_R):
         random.seed(0)
         random.shuffle(index_sample)
         if self.train or self.validation:
-            index_sample = index_sample[:int(0.8*n_data)]
+            index_sample = index_sample[:int(0.08*n_data)]
         else:
-            index_sample = index_sample[int(0.8*n_data):]
+            index_sample = index_sample[int(0.08*n_data):int(0.1*n_data)] #TODO : Change back
 
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]

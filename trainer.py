@@ -278,11 +278,11 @@ class Trainer:
             self.server_test_dataset.load_dataset(t_index, train=False)
         else:
             self.server_test_dataset.load_dataset(t_index, train=True)
-        test_loader  = DataLoader(self.server_test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+        test_loader  = DataLoader(self.server_test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers) #TODO : change appropriately
         if local:
             return self.server.validation(test_loader, task_in = self.server_tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
         else:
-            return self.server.validation(test_loader, task_metric=task, relabel_clusters = local, t_idx=t_index)
+            return self.server.validation(test_loader, task_metric=task, relabel_clusters = local, t_idx=t_index,sflag=True)
 
     def sim_eval(self, t_index, local=False, task='cka',client=0):
 
@@ -305,11 +305,11 @@ class Trainer:
     def communicate(self):
         with torch.no_grad():
             for key in self.server.model.state_dict().keys():
-                if 'last' in key:
-                    temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
-                    for i in range(self.n_clients):
-                        temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
-                    self.server.model.state_dict()[key].data.copy_(temp)
+                # if 'last' in key:
+                #     temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
+                #     for i in range(self.n_clients):
+                #         temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
+                #     self.server.model.state_dict()[key].data.copy_(temp)
                 if 'prompt' not in key:
                     continue
                 temp = []
@@ -341,7 +341,6 @@ class Trainer:
             np.random.seed(self.seed*100 + i)
             torch.manual_seed(self.seed*100 + i)
             torch.cuda.manual_seed(self.seed*100 + i)
-
             # print name
             train_name = self.task_names_per_client[i]
             print('======================', train_name, '=======================')
@@ -437,6 +436,7 @@ class Trainer:
                         til += self.task_eval(j, local=True,client=idx)
                     avg_metrics['til']['global'][i][idx] = til / (i+1)
                     if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i][idx] = self.sim_eval(i, local=False,client=idx)
+            print('Pre Comms : ',self.server_task_eval(i, all_tasks=True))
             self.communicate()
             server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True))
             server_temp_table['mem'].append(self.server.count_memory(self.dataset_size))

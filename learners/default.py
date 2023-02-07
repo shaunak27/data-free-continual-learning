@@ -453,7 +453,7 @@ class NormalNN(nn.Module):
             return -1
 
 
-    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False,t_idx=None):
+    def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False,t_idx=None,sflag=False):
 
         if model is None:
             if task_metric == 'acc':
@@ -476,7 +476,10 @@ class NormalNN(nn.Module):
                     target = target.cuda()
             if task_in is None:
                 if t_idx is not None:
-                    tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
+                    if sflag :
+                        tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
+                    else :
+                        tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
                 else:
                     tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
                 output = model.forward(input)[:, tasks_till_now]
