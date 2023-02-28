@@ -5,11 +5,11 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=clip_dualprompt_onlyprompt
+DATE=l2p_multilayer_vit_try2
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0 1'
 CONFIG_VIT=configs/imnet-r_vit.yaml
 CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
 CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
@@ -69,10 +69,10 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-#     --learner_type prompt --learner_name L2P \
-#     --prompt_param 100 20 1 -1 \
-#     --log_dir ${OUTDIR}/vit/l2p_multi-layer
+python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
@@ -114,9 +114,9 @@ MU=1
 #     --prompt_param 100 20 1 -1 --freeze_last
 
 ## clip dualprompt (freeze last)
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-     --learner_type prompt --learner_name DualPrompt --mu $MU --log_dir ${OUTDIR}/clip/dualprompt \
-    --prompt_param 10 20 6 -1 --freeze_last
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#      --learner_type prompt --learner_name DualPrompt --mu $MU --log_dir ${OUTDIR}/clip/dualprompt \
+#     --prompt_param 10 20 6 -1 --freeze_last
 
 # # # clip ZS with prompting
 # python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

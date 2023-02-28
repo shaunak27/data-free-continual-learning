@@ -120,17 +120,22 @@ class DualPrompt(nn.Module):
                         cos_sim_scaled = cos_sim
                     top_k = torch.topk(cos_sim_scaled, self.top_k, dim=1)
                     k_idx = top_k.indices
-                    loss = 1.0 - cos_sim[:,k_idx].mean()  # the cosine similarity is always le 1
-                    P_ = p[k_idx][:,0] ## SHAUN : This only chooses the top-1 prompt and not the top-k !!
+                    # loss = 1.0 - cos_sim[:,k_idx].mean()  # the cosine similarity is always le 1 #TODO : Uncomment
+                    # P_ = p[k_idx][:,0] ## SHAUN : This only chooses the top-1 prompt and not the top-k !!
                     
+                    cos_sim_scaled = cos_sim_scaled.unsqueeze(2).unsqueeze(3) #Weighted L2P #TODO : Uncomment
+                    P_ = torch.sum(torch.mul(cos_sim_scaled,p),dim=1)
+
                     # update frequency
                     f_ = getattr(self, f'freq_curr_{l}')
                     f_to_add = torch.bincount(k_idx.flatten().detach(),minlength=self.e_pool_size)
                     f_ += f_to_add
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
-                k_idx = top_k.indices
-                P_ = p[k_idx][:,0]
+                # k_idx = top_k.indices
+                # P_ = p[k_idx][:,0]
+                cos_sim = cos_sim.unsqueeze(2).unsqueeze(3) #Weighted L2P
+                P_ = torch.sum(torch.mul(cos_sim,p),dim=1)
                 
             # select prompts
             i = int(self.e_p_length/2)
@@ -162,7 +167,7 @@ class DualPrompt(nn.Module):
 
         # return
         if train:
-            return p_return, loss, x_block
+            return p_return, 0, x_block #p_return, loss, x_block TODO : uncomment
         else:
             return p_return, 0, x_block
 
