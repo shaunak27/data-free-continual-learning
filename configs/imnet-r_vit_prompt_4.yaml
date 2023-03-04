@@ -1,8 +1,8 @@
 dataset: ImageNet_R
-first_split_size: 100
-other_split_size: 100
+first_split_size: 120
+other_split_size: 120
 start_class: 0
-end_class: 100
+end_class: 120
 schedule:
 - 20
 schedule_type: cosine

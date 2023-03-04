@@ -51,7 +51,6 @@ def create_args():
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--latent', default=False, action='store_true', help='run latent generation')
     parser.add_argument('--hepco', default=False, action='store_true', help='run hepco')
-    parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
     return parser
 
 def get_args(argv):
@@ -155,7 +154,7 @@ if __name__ == '__main__':
         # set up a trainer
         trainer = Trainer(args, seed, metric_keys, save_keys)
         trainer.latent_gen()
-    start_r = 0 #TODO : comment out
+    #start_r = 0 #TODO : comment out
     for r in range(start_r, args.repeat):
 
         print('************************************')
@@ -182,11 +181,9 @@ if __name__ == '__main__':
                     avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed+1))
 
         # train model
-        if not args.only_eval_zs:
-            avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
-            avg_metrics = trainer.evaluate(avg_metrics)
-        else:
-            avg_metrics = trainer.evaluate_zs(avg_metrics)
+       
+        avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
+        avg_metrics = trainer.evaluate(avg_metrics)
         # evaluate model
             
 

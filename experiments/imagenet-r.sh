@@ -5,7 +5,7 @@ DATASET=ImageNet_R
 N_CLASS=200
 
 # save directory
-DATE=l2p_singlelayer_vit
+DATE=l2p_singlelayer_vit_0to100
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -71,7 +71,7 @@ MU=1
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 -1 -1 --latent \
+    --prompt_param 100 20 -1 -1 \
     --log_dir ${OUTDIR}/vit/l2p_single-layer  
 
 # l2p

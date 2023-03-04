@@ -33,15 +33,7 @@ class Trainer:
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        if args.dataset == 'CIFAR10':
-            Dataset = dataloaders.iCIFAR10
-            num_classes = 10
-            self.dataset_size = [32,32,3]
-        elif args.dataset == 'CIFAR100':
-            Dataset = dataloaders.iCIFAR100
-            num_classes = 100
-            self.dataset_size = [32,32,3]
-        elif args.dataset == 'ImageNet32':
+        if args.dataset == 'ImageNet32':
             Dataset = dataloaders.iIMAGENETs
             num_classes = 100
             self.dataset_size = [32,32,3]
@@ -56,7 +48,7 @@ class Trainer:
             self.top_k = 5
         elif args.dataset == 'ImageNet_R':
             Dataset = dataloaders.iIMAGENET_R
-            num_classes = 200
+            num_classes = args.end_class - args.start_class
             self.dataset_size = [224,224,3]
             self.top_k = 1
         elif args.dataset == 'DomainNet':
@@ -76,7 +68,7 @@ class Trainer:
             args.other_split_size = num_classes
             args.first_split_size = num_classes
         # load tasks
-        class_order = np.arange(num_classes).tolist()
+        class_order = np.arange(args.start_class,args.end_class).tolist()
         class_order_logits = np.arange(num_classes).tolist()
         if self.seed > 0 and args.rand_split:
             print('=============================================')
@@ -120,29 +112,6 @@ class Trainer:
         self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
                                 download_flag=False, transform=test_transform, 
                                 seed=self.seed, rand_split=args.rand_split, validation=args.validation)
-
-        # get dataset stats
-        if False:
-            train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=False, num_workers=8)
-            mean = 0.
-            std = 0.
-            nb_samples = 0.
-            for i, (input, target, task) in enumerate(train_loader):
-                data = input[0]
-                batch_samples = data.size(0)
-                data = data.view(batch_samples, data.size(1), -1)
-                mean += data.mean(2).sum(0)
-                std += data.std(2).sum(0)
-                nb_samples += batch_samples
-                print(i)
-                print(mean / nb_samples)
-                print(std / nb_samples)
-            mean /= nb_samples
-            std /= nb_samples
-            print(mean)
-            print(std)
-            print(done)
-
         # for oracle
         self.oracle_flag = args.oracle_flag
         self.add_dim = 0
@@ -181,17 +150,6 @@ class Trainer:
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
         ##SHAUN : Jump back to run.py
 
-    def train_vis(self, vis_dir, name, t_index, pre=False, embedding=None):
-        
-        self.test_dataset.load_dataset(self.num_tasks-1, train=False)
-        test_loader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-
-        if self.grayscale_vis: plt.rc('image', cmap='gray')
-        self.learner.data_visualization(test_loader, vis_dir, name, t_index)
-
-        # val data
-        embedding = self.learner.visualization(test_loader, vis_dir, name, t_index, embedding)
-        return embedding
 
     def task_eval(self, t_index, local=False, task='acc', all_tasks=False):
 
@@ -209,23 +167,6 @@ class Trainer:
         else:
             return self.learner.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=t_index)
 
-    def sim_eval(self, t_index, local=False, task='cka'):
-
-        val_name = self.task_names[t_index]
-        print('Feature Sim task: ', val_name)
-        
-        # eval
-        if local:
-            self.test_dataset.load_dataset(t_index - 1, train=False)
-        else:
-            self.test_dataset.load_dataset(t_index - 1, train=False)
-        
-        test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-        
-        if task == 'cka':
-            return self.learner.cka_eval(test_loader)
-        else:
-            return -1
 
     def train(self, avg_metrics):
     
@@ -301,7 +242,7 @@ class Trainer:
             # learn
             self.test_dataset.load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            model_save_dir = '/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/' #'/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #
+            model_save_dir =  self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/' #'/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader) ## SHAUN : Jump to LWF
@@ -419,51 +360,7 @@ class Trainer:
         avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
 
         return avg_metrics
-    
-    def evaluate_zs(self, avg_metrics):
 
-        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
-
-        # store results
-        metric_table = {}
-        metric_table_local = {}
-        final_acc = []
-        for mkey in self.metric_keys:
-            metric_table[mkey] = {}
-            metric_table_local[mkey] = {}
-
-        for i in range(self.max_task):
-
-            self.learner.task_count = i 
-            self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
-            self.learner.pre_steps()
-
-            # frequency table process
-            if i > 0:
-                try:
-                    if self.learner.model.module.prompt is not None:
-                        self.learner.model.module.prompt.process_frequency()
-                except:
-                    if self.learner.model.prompt is not None:
-                        self.learner.model.prompt.process_frequency()
-
-            # evaluate acc
-            metric_table['acc'][self.task_names[i]] = OrderedDict()
-            metric_table_local['acc'][self.task_names[i]] = OrderedDict()
-            self.reset_cluster_labels = True
-            for j in range(i+1):
-                val_name = self.task_names[j]
-                metric_table['acc'][val_name][self.task_names[i]] = self.task_eval(j)
-            for j in range(i+1):
-                val_name = self.task_names[j]
-                metric_table_local['acc'][val_name][self.task_names[i]] = self.task_eval(j, local=True)
-
-            final_acc.append(self.task_eval(i, all_tasks=True))
-
-        # summarize metrics
-        avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
-
-        return avg_metrics
 
 
     def latent_gen(self):

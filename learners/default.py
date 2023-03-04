@@ -129,6 +129,7 @@ class NormalNN(nn.Module):
                         y = y.cuda()
                     
                     # model update
+                    
                     loss, output= self.update_model(x, y)
                     # measure elapsed time
                     batch_time.update(batch_timer.toc())  
@@ -191,12 +192,11 @@ class NormalNN(nn.Module):
         torch._Loss :
             the loss function with any modifications added
         """
-        # loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
+        #loss_supervised = (self.criterion_fn(logits, targets.long()) * data_weights).mean()
         loss_supervised = self.criterion_fn(logits, targets.long()).mean()
         return loss_supervised 
 
     def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
-        
         if dw_force is not None:
             dw_cls = dw_force
         elif self.dw:
@@ -210,250 +210,13 @@ class NormalNN(nn.Module):
 
         self.optimizer.zero_grad()
         total_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) #TODO : replace to params_to_opt ??
+        #torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) #TODO : replace to params_to_opt ??
         self.optimizer.step()
         return total_loss.detach(), logits
 
     ##########################################
     #             MODEL EVAL                 #
     ##########################################
-
-    def visualization(self, dataloader, topdir, name, task, embedding):
-
-        #
-        # tsne
-        #
-        # setup files
-        savedir = topdir + name + '/'
-        if not os.path.exists(savedir): os.makedirs(savedir)
-        savename = savedir 
-
-        # gather data
-        X = []
-        y_pred = []
-        y_true = []
-        y_act = [[] for k in range(self.valid_out_dim)]
-        logit_out = [[] for k in range(self.valid_out_dim)]
-        orig_mode = self.training
-        self.eval()
-        for i, (input, target, _) in enumerate(dataloader):
-            if self.gpu:
-                with torch.no_grad():
-                    input = input.cuda()
-                    target = target.cuda()
-            output = self.predict(input)
-            penultimate = self.model.forward(x=input, pen=True)
-            X.extend(penultimate.cpu().detach().tolist())
-            y_pred.extend(np.argmax(output.cpu().detach().numpy(), axis = 1).tolist())
-            y_true.extend(target.cpu().detach())
-            for k in range(self.valid_out_dim):
-                y_act[k].extend(output[:,k].cpu().detach().numpy().tolist())
-                y_ind = np.where(target.cpu().detach().numpy() == k)[0]
-                logit_out[k].extend(output[y_ind,:].cpu().detach().numpy().tolist())
-        self.train(orig_mode)
-
-        # # debug - print activation stats
-        # logit_out = [np.asarray(logit_out[k]) for k in range(self.valid_out_dim)]
-        # print('acutal')
-        # for k in range(self.valid_out_dim):
-        #     print(np.mean(logit_out[k], axis=0))
-        #     print(np.std(logit_out[k], axis=0))
-        #     print(np.cov(logit_out[k].transpose()))
-
-        # save activations
-        y_act = np.asarray(y_act)
-        cm_array = np.zeros((self.valid_out_dim,2))
-        cm_array[:,0] = np.mean(y_act, axis=1)
-        cm_array[:,1] = np.std(y_act, axis=1)
-        np.savetxt(savename+'mean_std_act_per_task.csv', cm_array, delimiter=",", fmt='%.0f')
-
-        # convert to arrays
-        X = np.asarray(X)
-        y_true = np.asarray(y_true)
-        y_pred = np.asarray(y_pred)
-        
-        # confusion matrix
-        title = 'CM - Task ' + str(task+1)
-        ood_cuttoff = self.valid_out_dim
-        confusion_matrix_vis(y_pred[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title)
-
-        # tsne for in and out of distribution data
-        title = 'TSNE - Task ' + str(task+1)
-        tsne_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim)
-
-        # pca for in and out of distribution data
-        title = 'PCA - Task ' + str(task+1)
-        embedding = pca_eval(X[y_true < ood_cuttoff], y_true[y_true < ood_cuttoff], savename, title, self.out_dim, embedding)
-        
-        return embedding
-
-    def data_visualization(self, dataloader, topdir, name, task):
-
-        #
-        # dataset vis
-        #
-        # setup files
-        savedir = topdir + name + '/'
-        if not os.path.exists(savedir): os.makedirs(savedir)
-        num_show = 50
-        cols = 10
-
-        dataloader_list = [dataloader]
-        savename_list = ['training', 'external']
-        for dl in range(len(dataloader_list)):
-            datal = dataloader_list[dl]
-            savel = savename_list[dl]
-
-            # gather data
-            X = []
-            for i, (input, target, _) in enumerate(datal):
-                if self.gpu:
-                    with torch.no_grad():
-                        input = input.cuda()
-                X.extend(input.cpu().detach().tolist())
-
-            x = np.asarray(X) 
-            np.random.shuffle(x)                               
-            if dl == 0: min_x, max_x = np.amin(x), np.amax(x) 
-            rows = math.ceil(num_show/cols)
-            for j in range(num_show):
-                plt.subplot(rows, cols, j + 1)
-                im_show = np.squeeze(x[j].transpose((1,2,0)))
-                im_show = (im_show - min_x) / ((max_x - min_x))
-                plt.imshow((im_show * 255).astype(np.uint8)); plt.axis('off')
-            save_name = savedir + savel + '_images.png'
-            plt.savefig(save_name) 
-            plt.close()
-
-    def cka_eval(self, dataloader):
-
-        try:
-            # deep CKA analysis
-            if True and self.task_count > 1:
-                vis_dir = self.debug_dir + 'cka_plots' + '/'
-                if not os.path.exists(vis_dir): os.makedirs(vis_dir)
-                l_values = [0,1,2,3,4,5]
-
-                for t_anchor in range(self.task_count):
-
-                    # get file name
-                    filename = vis_dir + str(t_anchor+1) + '.png'
-                    cka_array = []
-                    acc_array = []
-
-                    # load model anchor
-                    m_a = self.create_model()
-                    m_a = self.load_model_other(self.debug_model_dir+str(t_anchor+1)+'/',m_a)
-                    teacher_a = Teacher(m_a)
-
-                    # get task
-                    task_in = self.tasks[t_anchor]
-                    cka_array.append([1.0 for l in range(len(l_values))])
-                    acc_array.append(self.validation(dataloader, model=m_a, task_in = task_in, cka_flag=task_in[-1]))
-
-                    for t_drift in range(t_anchor+1,self.task_count):
-                        # load model drift
-                        m_b = self.create_model()
-                        m_b = self.load_model_other(self.debug_model_dir+str(t_drift+1)+'/',m_b)
-                        teacher_b = Teacher(m_b)
-
-                        # get cka similarity between two models
-                        layer_array = []
-                        for l in l_values:
-                            X_anchor = []
-                            X_drift = []
-                            for i, (input, target, _) in enumerate(dataloader):
-                                if self.gpu:
-                                    with torch.no_grad():
-                                        input = input.cuda()
-                                        target = target.cuda()
-
-                                mask = target >= task_in[0]
-                                mask_ind = mask.nonzero().view(-1) 
-                                input, target = input[mask_ind], target[mask_ind]
-
-                                mask = target < task_in[-1]
-                                mask_ind = mask.nonzero().view(-1) 
-                                input, target = input[mask_ind], target[mask_ind]
-
-                                if len(target) > 0:
-
-                                    # current
-                                    penultimate_anchor = teacher_a.generate_scores_layer(input,l)
-                                    X_anchor.extend(penultimate_anchor.cpu().detach().tolist())
-
-                                    # past
-                                    penultimate_drift = teacher_b.generate_scores_layer(input,l)
-                                    X_drift.extend(penultimate_drift.cpu().detach().tolist())
-
-                            # convert to arrays
-                            X_anchor = np.asarray(X_anchor)
-                            X_drift = np.asarray(X_drift)
-
-                            # return cka score
-                            cka = calculate_cka(X_anchor, X_drift)
-                            layer_array.append(cka)
-                        cka_array.append(layer_array)
-                        acc_array.append(self.validation(dataloader, model=m_b, task_in = task_in, cka_flag=self.tasks[t_drift][-1]))
-
-                    # save plot
-                    if len(cka_array) > 0:
-                        cmap = plt.get_cmap('jet')
-                        colors = cmap(np.linspace(0, 1.0, len(l_values)+1))
-                        plt.figure(figsize=(8,4))
-                        l_legend = ['Linear', 'Pen','L-2','L-3','L-4','L-5']
-                        x = np.arange(len(cka_array)) + 1 + t_anchor
-                        final_acc = np.asarray([cka_array[-1][l] for l in range(len(l_values))])
-                        for s in range(len(l_values)):
-                            i = np.argsort(final_acc)[-s-1]
-                            y = np.asarray([cka_array[j][i] for j in range(len(x))])
-                            plt.plot(x,y,lw=2, color = colors[i], linestyle = 'solid', label = l_legend[i])
-                            plt.scatter(x,y,s=50, color = colors[i])
-                        y = np.asarray(acc_array) / 100.0
-                        plt.plot(x,y,lw=2, color = colors[-1], linestyle = 'dashed', label = 'acc')
-                        plt.scatter(x,y,s=50, color = colors[-1])
-                        tick_x = np.arange(self.task_count) + 1
-                        tick_x_s = []
-                        for tick in tick_x:
-                            tick_x_s.append(str(int(tick)))
-                        plt.xticks(tick_x, tick_x_s,fontsize=14)
-                        plt.ylim(0,1.1)
-                        plt.yticks([0.2, 0.4, 0.6, 0.8, 1.0],fontsize=14)
-                        plt.ylabel('CKA Score', fontweight='bold', fontsize=18)
-                        plt.xlabel('Tasks', fontweight='bold', fontsize=18)
-                        plt.title('CKA Forgetting Analysis for Task = '+str(t_anchor+1), fontsize=18)
-                        plt.legend(loc='lower left', prop={'weight': 'bold', 'size': 10})
-                        plt.grid()
-                        plt.tight_layout()
-                        plt.grid()
-                        plt.savefig(filename,format='png')  
-                        plt.close()
-
-            # gather data
-            X_cur = []
-            X_past = []
-            for i, (input, target, _) in enumerate(dataloader):
-                if self.gpu:
-                    with torch.no_grad():
-                        input = input.cuda()
-                        target = target.cuda()
-
-                # current
-                penultimate_cur = self.previous_teacher.generate_scores_pen(input)
-                X_cur.extend(penultimate_cur.cpu().detach().tolist())
-
-                # past
-                penultimate_past = self.previous_previous_teacher.generate_scores_pen(input)
-                X_past.extend(penultimate_past.cpu().detach().tolist())
-
-            # convert to arrays
-            X_cur = np.asarray(X_cur)
-            X_past = np.asarray(X_past)
-
-            # return cka score
-            return calculate_cka(X_cur, X_past)
-        except:
-            return -1
 
     def generate_kd_data(self, dataloader):
         self.model.eval()
@@ -506,7 +269,7 @@ class NormalNN(nn.Module):
                 total_loss += loss.item()
                 self.optimizer.step()
             print(total_loss)
-        self.save_model('./model_kd_2')
+        self.save_model('./model_kd')
             
     def latent_forward(self, dataloader):
         self.model.eval()
@@ -586,11 +349,11 @@ class NormalNN(nn.Module):
                     input = input.cuda()
                     target = target.cuda()
             if task_in is None:
-                if t_idx is not None:
-                    tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
-                else:
-                    tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
-                output = model.forward(input)[:, tasks_till_now]
+                # if t_idx is not None:
+                #     tasks_till_now = [j for sub in self.tasks_real[:t_idx+1] for j in sub]
+                # else:
+                #     tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+                output = model.forward(input)[:, :self.valid_out_dim]
                 acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
             else:
                 mask = target >= task_in[0]
@@ -607,15 +370,10 @@ class NormalNN(nn.Module):
                         acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                     else:
                         if task_global:
-                            tasks_till_now = [j for sub in self.tasks_real[:self.task_count] for j in sub]
-                            output = model.forward(input)[:, tasks_till_now]
+                            output = model.forward(input)[:, :self.valid_out_dim]
                             acc = accumulate_acc(output, target, task, acc, topk=(self.top_k,))
                         else:
-                            #tasks_till_now = [j for sub in self.tasks_real[:self.task_count] for j in sub]
-                            if t_idx is not None:
-                                output = model.forward(input)[:, self.tasks_real[t_idx]]
-                            else:
-                                output = model.forward(input)[:, self.tasks_real[self.task_count-1]]
+                            output = model.forward(input)[:, task_in]
                             acc = accumulate_acc(output, target-task_in[0], task, acc, topk=(self.top_k,))
             
         model.train(orig_mode)
@@ -719,8 +477,7 @@ class NormalNN(nn.Module):
         self.model.apply(weight_reset)
 
     def forward(self, x):
-        tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
-        return self.model.forward(x)[:, tasks_till_now]
+        return self.model.forward(x)[:, :self.valid_out_dim]
 
     def predict(self, inputs):
         self.model.eval()
