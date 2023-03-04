@@ -65,7 +65,7 @@ class DualPrompt(nn.Module):
                 setattr(self, f'freq_past_{e}',torch.nn.Parameter(f_, requires_grad=False))
 
 
-    def forward(self, x_querry, l, x_block, train=False, task_id=None):
+    def forward(self, x_querry, l, x_block, train=False, task_id=None,hepco=False):
 
         # e prompts
         e_valid = False
@@ -165,11 +165,16 @@ class DualPrompt(nn.Module):
             p_return = None
             loss = 0
 
-        # return
-        if train:
-            return p_return, 0, x_block #p_return, loss, x_block TODO : uncomment
+        if hepco:
+            if train:
+                return P_, 0, x_block #p_return, loss, x_block TODO : uncomment
+            else:
+                return P_, 0, x_block # TODO : change to p_return
         else:
-            return p_return, 0, x_block
+            if train:
+                return p_return, 0, x_block #p_return, loss, x_block TODO : uncomment
+            else:
+                return p_return, 0, x_block # TODO : change to p_return
 
 class L2P(DualPrompt):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
@@ -237,8 +242,11 @@ class ResNetZoo(nn.Module):
         self.feat = zoo_model
         
 
-    def forward(self, x, pen=False, train=False):
+    def forward(self, x, pen=False, train=False, z = None):
 
+        if z is not None:
+            out = self.last(z)
+            return out
         if self.prompt is not None:
             with torch.no_grad():
                 q, _ = self.feat(x)

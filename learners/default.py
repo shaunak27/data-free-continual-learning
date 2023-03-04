@@ -17,6 +17,9 @@ import matplotlib.pyplot as plt
 import copy
 from utils.schedulers import CosineSchedule
 import time
+from tqdm import tqdm 
+import wandb
+#wandb.init(project="hepco")
 
 class NormalNN(nn.Module):
     '''
@@ -452,6 +455,115 @@ class NormalNN(nn.Module):
         except:
             return -1
 
+    def generate_kd_data(self, dataloader):
+        self.model.eval()
+        for i, (input, target, task) in tqdm(enumerate(dataloader),total=len(dataloader)):
+            with torch.no_grad():
+                input = input.cuda()
+                target = target.cuda()
+            z = torch.normal(mean = torch.zeros((input.shape[0],768)), std=torch.ones((input.shape[0],768))).cuda() #try randn ??
+            alpha = 0.1
+            for _ in range(500):
+                z.requires_grad = True
+                out = self.model.forward(x=None, z=z)
+                loss = self.criterion(out, target.long(), data_weights=None)
+                loss.backward()
+                data_grad = z.grad.data
+                z = (z - alpha*data_grad).detach_()
+            #print([(a.item(), b.item()) for a,b in zip(torch.argmax(out,dim=1),target)])
+            p_hat, _, _ = self.model.module.prompt.forward(z,0,None)
+            p_hat = p_hat.detach().cpu()
+            temp_z = torch.zeros_like(z[0])
+            temp_p = torch.zeros_like(p_hat[0])
+            for idx in range(len(target)):
+                temp_z.data.copy_(z[idx])
+                temp_p.data.copy_(p_hat[idx])
+                torch.save(temp_z,f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/queries_2/z_{idx + i*len(target)}_{target[idx].item()}.pt")
+                torch.save(temp_p,f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/prompts_2/p_{idx + i*len(target)}_{target[idx].item()}.pt")
+
+    def quick(self,dataloader):
+        self.model.eval()
+        for i, (input, target, task) in tqdm(enumerate(dataloader),total=len(dataloader)):
+            #print(target[0].item())
+            z = torch.load(f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/queries/z_{0}.pt").cpu().cuda()
+            z = z.unsqueeze(0)
+            out = self.model.forward(x=None, z=z)
+            print(target[0].item(), '---',torch.argmax(out,dim=1).item())
+        exit()
+    
+    def train_prompts(self,dataloader):
+        loss_fn = nn.MSELoss(reduction='mean')
+        for epoch in range(self.config['schedule'][-1]):
+            total_loss = 0
+            for i, (input, target) in tqdm(enumerate(dataloader),total=len(dataloader)):
+                with torch.no_grad():
+                    input = input.cuda()
+                    target = target.cuda()
+                out,_,_ = self.model.module.prompt.forward(input,0,None,train=True,hepco=True)
+                loss = loss_fn(out,target)
+                self.optimizer.zero_grad()
+                loss.backward()
+                total_loss += loss.item()
+                self.optimizer.step()
+            print(total_loss)
+        self.save_model('./model_kd_2')
+            
+    def latent_forward(self, dataloader):
+        self.model.eval()
+        p_golds = torch.empty((1,20,768))
+        p_hats = torch.empty((1,20,768))
+        qs = torch.empty((1,768))
+        zs = torch.empty((1,768))
+        targets = torch.empty((1))
+        for i, (input, target, task) in tqdm(enumerate(dataloader),total=len(dataloader)):
+            with torch.no_grad():
+                input = input.cuda()
+                target = target.cuda()
+            z = torch.normal(mean = torch.zeros((input.shape[0],768)), std=torch.ones((input.shape[0],768))).cuda() #try randn ??
+            alpha = 0.1
+            q, _ = self.model.module.feat.forward(input)
+            q = q[:,0,:]
+            p_gold ,_, _= self.model.module.prompt.forward(q,0,None)
+            for _ in range(500):
+                z.requires_grad = True
+                out = self.model.forward(x=None, z=z)[:, :10]
+                loss = self.criterion(out, target.long(), data_weights=None)
+                loss.backward()
+                data_grad = z.grad.data
+                z = (z - alpha*data_grad).detach_()
+            #print([(a.item(), b.item()) for a,b in zip(torch.argmax(out,dim=1),target)])
+            p_hat, _, _ = self.model.module.prompt.forward(z,0,None)
+            zs = torch.cat((zs,z.cpu()), dim=0)
+            qs = torch.cat((qs,q.cpu()), dim=0)
+            targets = torch.cat((targets,target.cpu()),dim = 0)
+            p_golds = torch.cat((p_golds,p_gold.cpu()),dim = 0)
+            p_hats = torch.cat((p_hats,p_hat.cpu()),dim = 0)
+        zs = torch.cat((zs,targets.reshape(-1,1)),dim=1)
+        qs = torch.cat((qs,targets.reshape(-1,1)),dim=1)
+        #p_golds = torch.cat((p_golds,targets.reshape(-1,1,1)),dim=1)
+        #p_hats = torch.cat((p_hats,targets.reshape(-1,1,1)),dim=1)
+        zs = zs[1:].tolist()
+        qs = qs[1:].tolist()
+        p_golds = p_golds[1:].tolist()
+        p_hats = p_hats[1:].tolist()
+        zcols = ['Z'+str(i) for i in range(20)]
+        #zcols.append('target')
+        qcols = ['Q'+str(i) for i in range(20)]
+        #qcols.append('target')
+        wandb.log({
+            "pg": wandb.Table(
+                columns = zcols,
+                data = p_golds,   
+            ),
+            "ph": wandb.Table(
+                columns= qcols,
+                data = p_hats
+            )
+        })
+        wandb.finish()
+        #print(out)
+        #print(torch.topk(self.model.forward(x=None, z=z),dim=1,k=10))
+
 
     def validation(self, dataloader, model=None, task_in = None, task_metric='acc', relabel_clusters = True, verbal = True, cka_flag = -1, task_global=False,t_idx=None):
 
@@ -469,7 +581,6 @@ class NormalNN(nn.Module):
         orig_mode = model.training
         model.eval()
         for i, (input, target, task) in enumerate(dataloader):
-
             if self.gpu:
                 with torch.no_grad():
                     input = input.cuda()
@@ -538,7 +649,10 @@ class NormalNN(nn.Module):
         self.log('=> Save Done')
 
     def load_model(self, filename):
-        self.model.load_state_dict(torch.load(filename + 'class.pth'))
+        if filename.endswith('.pth'):
+            self.model.load_state_dict(torch.load(filename))
+        else:
+            self.model.load_state_dict(torch.load(filename + 'class.pth'))
         self.log('=> Load Done')
         if self.gpu:
             self.model = self.model.cuda()

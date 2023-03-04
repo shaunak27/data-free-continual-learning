@@ -49,6 +49,8 @@ def create_args():
     parser.add_argument('--template_style', type=str, default="openai_imagenet_template",
                          help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
+    parser.add_argument('--latent', default=False, action='store_true', help='run latent generation')
+    parser.add_argument('--hepco', default=False, action='store_true', help='run hepco')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
     return parser
 
@@ -123,7 +125,37 @@ if __name__ == '__main__':
 
         except:
             start_r = 0
-    # start_r = 0
+    if args.hepco:
+        print('************************************')
+        print('* STARTING TRIAL ' + str(0+1))
+        print('************************************')
+
+        # set random seeds
+        seed = 0
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+
+        # set up a trainer
+        trainer = Trainer(args, seed, metric_keys, save_keys)
+        trainer.train_kd()
+    if args.latent:
+        print('************************************')
+        print('* STARTING TRIAL ' + str(0+1))
+        print('************************************')
+
+        # set random seeds
+        seed = 0
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+
+        # set up a trainer
+        trainer = Trainer(args, seed, metric_keys, save_keys)
+        trainer.latent_gen()
+    start_r = 0 #TODO : comment out
     for r in range(start_r, args.repeat):
 
         print('************************************')
@@ -189,5 +221,3 @@ if __name__ == '__main__':
             print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
     
     
-
-

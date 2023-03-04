@@ -334,7 +334,7 @@ class iIMAGENET_R(iDataset):
         if self.train or self.validation:
             index_sample = index_sample[:int(0.8*n_data)]
         else:
-            index_sample = index_sample[int(0.8*n_data):]
+            index_sample = index_sample[int(0.8*n_data):] #TODO : revert to original
 
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]
@@ -411,6 +411,19 @@ class iDOMAIN_NET(iIMAGENET_R):
 
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]
+
+class KD_Dataset(data.Dataset):
+    def __init__(self):
+        pass
+
+    def __len__(self):
+        return 10000
+
+    def __getitem__(self, idx):
+        query = torch.load(f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/queries_3/z_{idx}.pt")
+        prompt = torch.load(f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/prompts_3/p_{idx}.pt")
+        return query,prompt
+
 
 def get_data(root_images):
 

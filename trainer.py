@@ -301,14 +301,17 @@ class Trainer:
             # learn
             self.test_dataset.load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+            model_save_dir = '/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/' #'/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader) ## SHAUN : Jump to LWF
-
-            # save model
+            # temp_p = torch.randn_like(self.learner.model.state_dict()['module.prompt.e_p_0'],dtype=torch.float32)
+            # temp_k = torch.randn_like(self.learner.model.state_dict()['module.prompt.e_k_0'],dtype=torch.float32)
+            # # save model
+            
+            # self.learner.model.state_dict()['module.prompt.e_p_0'].data.copy_(temp_p)
+            # self.learner.model.state_dict()['module.prompt.e_k_0'].data.copy_(temp_k)
             self.learner.save_model(model_save_dir)
-
             # T-sne plots
             if self.vis_flag:
                 self.train_vis(vis_dir, 'post', i)
@@ -461,3 +464,64 @@ class Trainer:
         avg_metrics['acc'] = self.summarize_acc(avg_metrics['acc'], metric_table['acc'],  metric_table_local['acc'], final_acc)
 
         return avg_metrics
+
+
+    def latent_gen(self):
+
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+            # load model
+        i = 0
+        model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+        self.learner.task_count = i 
+        self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
+        self.learner.pre_steps()
+        self.learner.load_model(model_save_dir)
+
+        val_name = self.task_names[i]
+        print('validation split name:', val_name)
+        self.train_dataset.load_dataset(i, train=True)
+        train_loader  = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+        
+        # frequency table process
+        if i > 0:
+            try:
+                if self.learner.model.module.prompt is not None:
+                    self.learner.model.module.prompt.process_frequency()
+            except:
+                if self.learner.model.prompt is not None:
+                    self.learner.model.prompt.process_frequency()
+
+        
+        self.learner.generate_kd_data(train_loader)
+            
+        return  
+
+    def train_kd(self):
+
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+            # load model
+        i = 0
+        model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+        self.learner.task_count = i 
+        self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
+        self.learner.pre_steps()
+        self.learner.load_model(model_save_dir)
+
+        val_name = self.task_names[i]
+        print('validation split name:', val_name)
+        #train_loader  = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
+        dataset = dataloaders.KD_Dataset()
+        train_loader = DataLoader(dataset,batch_size=self.batch_size,shuffle=True,num_workers=self.workers, drop_last=False)
+        # frequency table process
+        if i > 0:
+            try:
+                if self.learner.model.module.prompt is not None:
+                    self.learner.model.module.prompt.process_frequency()
+            except:
+                if self.learner.model.prompt is not None:
+                    self.learner.model.prompt.process_frequency()
+
+        
+        self.learner.train_prompts(train_loader)
+            
+        return

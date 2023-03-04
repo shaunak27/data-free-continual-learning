@@ -15,7 +15,8 @@ plots_and_tables/
 *.csv
 .swp
 test/data/
-
+wandb
+wandb/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
