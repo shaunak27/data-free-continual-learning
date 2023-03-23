@@ -9,11 +9,13 @@ from collections import OrderedDict
 import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
+import torchvision.datasets as datasets
 import learners
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import time
+import copy
 class Trainer:
 
     def __init__(self, args, seed, metric_keys, save_keys):
@@ -29,13 +31,18 @@ class Trainer:
         
         # model load directory
         self.model_top_dir = args.log_dir
-
+        self.load_model_from = args.load_model_from
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
         if args.dataset == 'ImageNet32':
             Dataset = dataloaders.iIMAGENETs
             num_classes = 100
+            self.dataset_size = [32,32,3]
+        elif args.dataset == 'CIFAR10':
+            TrainDataset = dataloaders.IMBALANCECIFAR10
+            Dataset = dataloaders.iCIFAR10
+            num_classes = 10
             self.dataset_size = [32,32,3]
         elif args.dataset == 'ImageNet84':
             Dataset = dataloaders.iIMAGENETs
@@ -48,6 +55,7 @@ class Trainer:
             self.top_k = 5
         elif args.dataset == 'ImageNet_R':
             Dataset = dataloaders.iIMAGENET_R
+            TrainDataset = dataloaders.IMBALANCEINR
             num_classes = args.end_class - args.start_class
             self.dataset_size = [224,224,3]
             self.top_k = 1
@@ -106,16 +114,24 @@ class Trainer:
             resize_imnet = False
         train_transform = dataloaders.utils.get_transform(dataset=args.dataset, phase='train', aug=args.train_aug, resize_imnet=resize_imnet)
         test_transform  = dataloaders.utils.get_transform(dataset=args.dataset, phase='test', aug=args.train_aug, resize_imnet=resize_imnet)
-        self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
-                            download_flag=True, transform=train_transform, 
-                            seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+        
+        if args.dataset == 'CIFAR10' or args.dataset == 'ImageNet_R':
+            self.train_dataset = TrainDataset(args.dataroot, train=True, tasks=self.tasks,
+                                download_flag=True, transform=train_transform, 
+                                seed=self.seed)
+        else:
+            self.train_dataset = Dataset(args.dataroot, train=True, lab = True, tasks=self.tasks,
+                                download_flag=True, transform=train_transform, 
+                                seed=self.seed, rand_split=args.rand_split, validation=args.validation)
+        
         self.test_dataset  = Dataset(args.dataroot, train=False, tasks=self.tasks,
                                 download_flag=False, transform=test_transform, 
                                 seed=self.seed, rand_split=args.rand_split, validation=args.validation)
         # for oracle
         self.oracle_flag = args.oracle_flag
         self.add_dim = 0
-
+        if args.split is None:
+            args.split = 0
         # Prepare the self.learner (model)
         self.learner_config = {'num_classes': num_classes,
                         'lr': args.lr,
@@ -143,8 +159,10 @@ class Trainer:
                         'tasks': self.tasks_logits,
                         'tasks_real': self.tasks,
                         'top_k': self.top_k,
+                        'load_model_from' : self.load_model_from,
                         'template_style':args.template_style,
-                        'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
+                        'prompt_param':[self.num_tasks,args.prompt_param], #SHAUN : Important step
+                        'split':args.split  
                         }
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
         self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config) ## SHAUNAK : Initialize Learner 
@@ -242,7 +260,10 @@ class Trainer:
             # learn
             self.test_dataset.load_dataset(i, train=False) ##SHAUN : loads all tasks seen till now
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
-            model_save_dir =  self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/' #'/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #
+            if self.load_model_from is not None:
+                model_save_dir = self.load_model_from
+            else:
+                model_save_dir =  self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/' #'/home/shaunak/fed_prompt/data-free-continual-learning/model_kd_2class.pth' #
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader) ## SHAUN : Jump to LWF
@@ -421,4 +442,94 @@ class Trainer:
         
         self.learner.train_prompts(train_loader)
             
+        return
+    
+    def unify_classifiers(self):
+
+        self.learner = learners.__dict__[self.learner_type].__dict__[self.learner_name](self.learner_config)
+        model_save_dir = '/nethome/shalbe3/fed_prompt/data-free-continual-learning/_outputs/l2p_singlelayer_vit_0to120/ImageNet_R/10-task/vit/l2p_single-layer/models/repeat-1/task-1/class.pth'
+        self.learner.load_model(model_save_dir)
+        client1_config = copy.deepcopy(self.learner_config)
+        client2_config = copy.deepcopy(self.learner_config)
+        client3_config = copy.deepcopy(self.learner_config)
+        client1_config['out_dim'] = 100
+        client2_config['out_dim'] = 30
+        client3_config['out_dim'] = 60
+        client1 = learners.__dict__[self.learner_type].__dict__[self.learner_name](client1_config)
+        client2 = learners.__dict__[self.learner_type].__dict__[self.learner_name](client2_config)
+        client3 = learners.__dict__[self.learner_type].__dict__[self.learner_name](client3_config)
+        client1.load_model('/nethome/shalbe3/fed_prompt/data-free-continual-learning/_outputs/l2p_singlelayer_vit_0to100/ImageNet_R/10-task/vit/l2p_single-layer/models/repeat-1/task-1/class.pth')
+        client2.load_model('/nethome/shalbe3/fed_prompt/data-free-continual-learning/_outputs/l2p_singlelayer_vit_50to80/ImageNet_R/10-task/vit/l2p_single-layer/models/repeat-1/task-1/class.pth')
+        client3.load_model('/nethome/shalbe3/fed_prompt/data-free-continual-learning/_outputs/l2p_singlelayer_vit_60to120/ImageNet_R/10-task/vit/l2p_single-layer/models/repeat-1/task-1/class.pth')
+
+        last_w = torch.zeros_like(self.learner.model.state_dict()['module.last.weight'],dtype=torch.float32)
+        last_b = torch.zeros_like(self.learner.model.state_dict()['module.last.bias'],dtype=torch.float32)
+        prompt = torch.zeros_like(self.learner.model.state_dict()['module.prompt.e_p_0'],dtype=torch.float32)
+        key = torch.zeros_like(self.learner.model.state_dict()['module.prompt.e_k_0'],dtype=torch.float32)
+        
+        
+        # prompt = 0.33*client1.model.state_dict()['module.prompt.e_p_0'].data + 0.33*client2.model.state_dict()['module.prompt.e_p_0'].data + 0.33*client3.model.state_dict()['module.prompt.e_p_0'].data
+        # key = 0.33*client1.model.state_dict()['module.prompt.e_k_0'].data + 0.33*client2.model.state_dict()['module.prompt.e_k_0'].data + 0.33*client3.model.state_dict()['module.prompt.e_k_0'].data
+        
+
+
+        last_w[:50] += client1.model.state_dict()['module.last.weight'].data[:50]
+        last_w[50:60] += 0.5*client1.model.state_dict()['module.last.weight'].data[50:60]
+        last_w[60:80] += 0.33*client1.model.state_dict()['module.last.weight'].data[60:80]
+        last_w[80:100] += 0.5*client1.model.state_dict()['module.last.weight'].data[80:100]
+        last_w[50:60] += 0.5*client2.model.state_dict()['module.last.weight'].data[:10]
+        last_w[60:80] += 0.33*client2.model.state_dict()['module.last.weight'].data[10:]
+        last_w[60:80] += 0.33*client3.model.state_dict()['module.last.weight'].data[:20]
+        last_w[80:100] += 0.5*client3.model.state_dict()['module.last.weight'].data[20:40]
+        last_w[100:120] += client3.model.state_dict()['module.last.weight'].data[40:60]
+
+        last_b[:50] += client1.model.state_dict()['module.last.bias'].data[:50]
+        last_b[50:60] += 0.5*client1.model.state_dict()['module.last.bias'].data[50:60]
+        last_b[60:80] += 0.33*client1.model.state_dict()['module.last.bias'].data[60:80]
+        last_b[80:100] += 0.5*client1.model.state_dict()['module.last.bias'].data[80:100]
+        last_b[50:60] += 0.5*client2.model.state_dict()['module.last.bias'].data[:10]
+        last_b[60:80] += 0.33*client2.model.state_dict()['module.last.bias'].data[10:]
+        last_b[60:80] += 0.33*client3.model.state_dict()['module.last.bias'].data[:20]
+        last_b[80:100] += 0.5*client3.model.state_dict()['module.last.bias'].data[20:40]
+        last_b[100:120] += client3.model.state_dict()['module.last.bias'].data[40:60]
+
+        # last_w[:100] += 0.333*client1.model.state_dict()['module.last.weight'].data
+        # last_w[50:80] += 0.333*client2.model.state_dict()['module.last.weight'].data
+        # last_w[60:120] += 0.333*client3.model.state_dict()['module.last.weight'].data
+        # last_b[:100] += 0.333*client1.model.state_dict()['module.last.bias'].data   #Equal Merging
+        # last_b[50:80] += 0.333*client2.model.state_dict()['module.last.bias'].data
+        # last_b[60:120] += 0.333*client3.model.state_dict()['module.last.bias'].data
+        
+        self.learner.model.state_dict()['module.last.weight'].data.copy_(last_w)
+        self.learner.model.state_dict()['module.last.bias'].data.copy_(last_b)
+        # self.learner.model.state_dict()['module.prompt.e_p_0'].data.copy_(prompt)
+        # self.learner.model.state_dict()['module.prompt.e_k_0'].data.copy_(key)
+
+        i = 0
+        self.learner.task_count = i 
+        self.learner.add_valid_output_dim(len(self.tasks_logits[i]))
+        self.learner.pre_steps()
+        
+        
+
+        val_name = self.task_names[i]
+        print('validation split name:', val_name)
+        cwd = os.getcwd()
+        path = os.path.join(cwd,'data/kd_data/queries_uni/')
+        dataset = dataloaders.QPdata_multi(path)
+        train_loader = DataLoader(dataset, batch_size=self.batch_size,shuffle=True,num_workers=self.workers, drop_last=False)
+        # frequency table process
+        if i > 0:
+            try:
+                if self.learner.model.module.prompt is not None:
+                    self.learner.model.module.prompt.process_frequency()
+            except:
+                if self.learner.model.prompt is not None:
+                    self.learner.model.prompt.process_frequency()
+
+        #model_save_dir = '/nethome/shalbe3/fed_prompt/data-free-continual-learning/_outputs/onlylastlayer_vit_0to100/ImageNet_R/10-task/vit/models/repeat-1/task-1/class.pth'
+        #self.learner.load_model(model_save_dir)
+        self.learner.train_prompts(train_loader)
+        #self.learner.load_model(self.load_model_from)
+        #self.learner.train_classifiers(train_loader)
         return

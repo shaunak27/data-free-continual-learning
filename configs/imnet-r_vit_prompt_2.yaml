@@ -1,10 +1,10 @@
 dataset: ImageNet_R
-first_split_size: 30
-other_split_size: 30
-start_class: 50
-end_class: 80
+first_split_size: 120
+other_split_size: 120
+start_class: 0
+end_class: 120
 schedule:
-- 20
+- 7
 schedule_type: cosine
 batch_size: 64
 optimizer: Adam
@@ -20,4 +20,5 @@ workers: 8
 validation: False
 train_aug: True
 rand_split: True
-freeze_encoder: False
+freeze_encoder: True
+split: 2

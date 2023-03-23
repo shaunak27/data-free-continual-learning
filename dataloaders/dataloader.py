@@ -12,6 +12,9 @@ import random
 import torchvision.datasets as datasets
 import json 
 import time
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
+from PIL import Image
+
 #from models.zeroshot import imr_classnames
 VAL_HOLD = 0.1
 class iDataset(data.Dataset):
@@ -179,6 +182,204 @@ class iDataset(data.Dataset):
         return fmt_str
 
 
+class iCIFAR10(iDataset):
+    """`CIFAR10 <https://www.cs.toronto.edu/~kriz/cifar.html>`_ Dataset.
+    This is a subclass of the iDataset Dataset.
+    """
+    base_folder = 'cifar-10-batches-py'
+    url = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+    filename = "cifar-10-python.tar.gz"
+    tgz_md5 = 'c58f30108f718f92721af3b95e74349a'
+    train_list = [
+        ['data_batch_1', 'c99cafc152244af753f735de768cd75f'],
+        ['data_batch_2', 'd4bba439e000b95fd0a9bffe97cbabec'],
+        ['data_batch_3', '54ebc095f3ab1f0389bbae665268c751'],
+        ['data_batch_4', '634d18415352ddfa80567beed471001a'],
+        ['data_batch_5', '482c414d41f54cd18b22e5b47cb7c3cb'],
+    ]
+
+    test_list = [
+        ['test_batch', '40351d587109b95175f43aff81a1287e'],
+    ]
+    meta = {
+        'filename': 'batches.meta',
+        'key': 'label_names',
+        'md5': '5ff9c542aee3614f3951f8cda6e48888',
+    }
+    im_size=32
+    nch=3
+
+    def load(self):
+
+        # download dataset
+        if self.download_flag:
+            self.download()
+
+        if not self._check_integrity():
+            raise RuntimeError('Dataset not found or corrupted.' +
+                               ' You can use download=True to download it')
+
+        if self.train or self.validation:
+            downloaded_list = self.train_list
+        else:
+            downloaded_list = self.test_list
+
+        self.data = []
+        self.targets = []
+        self.course_targets = []
+
+        # now load the picked numpy arrays
+        for file_name, checksum in downloaded_list:
+            file_path = os.path.join(self.root, self.base_folder, file_name)
+            with open(file_path, 'rb') as f:
+                if sys.version_info[0] == 2:
+                    entry = pickle.load(f)
+                else:
+                    entry = pickle.load(f, encoding='latin1')
+                self.data.append(entry['data'])
+                if 'labels' in entry:
+                    self.targets.extend(entry['labels'])
+                else:
+                    self.targets.extend(entry['fine_labels'])
+                if 'coarse_labels' in entry:
+                    self.course_targets.extend(entry['coarse_labels'])
+                
+        self.data = np.vstack(self.data).reshape(-1, 3, 32, 32)
+        self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
+        self._load_meta()
+
+    def download(self):
+        import tarfile
+
+        if self._check_integrity():
+            print('Files already downloaded and verified')
+            return
+
+        download_url(self.url, self.root, self.filename, self.tgz_md5)
+
+        # extract file
+        with tarfile.open(os.path.join(self.root, self.filename), "r:gz") as tar:
+            tar.extractall(path=self.root)
+
+    def _load_meta(self):
+        path = os.path.join(self.root, self.base_folder, self.meta['filename'])
+        if not check_integrity(path, self.meta['md5']):
+            raise RuntimeError('Dataset metadata file not found or corrupted.' +
+                               ' You can use download=True to download it')
+        with open(path, 'rb') as infile:
+            if sys.version_info[0] == 2:
+                data = pickle.load(infile)
+            else:
+                data = pickle.load(infile, encoding='latin1')
+            self.classes = data[self.meta['key']]
+        self.class_to_idx = {_class: i for i, _class in enumerate(self.classes)}
+
+    def _check_integrity(self):
+        root = self.root
+        for fentry in (self.train_list + self.test_list):
+            filename, md5 = fentry[0], fentry[1]
+            fpath = os.path.join(root, self.base_folder, filename)
+            if not check_integrity(fpath, md5):
+                return False
+        return True
+
+class IMBALANCECIFAR10(iCIFAR10):
+    cls_num = 10
+
+    def __init__(self, root, train=True, transform=None, download_flag=False, percent= 0.1, 
+    imb_type='exp', imb_factor=0.01,seed=-1,tasks=None):
+        self.imb_type = imb_type
+        self.imb_factor = imb_factor
+        self.percent = percent
+        super(IMBALANCECIFAR10, self).__init__(root, train, transform, download_flag,tasks=tasks,seed=seed)
+        # np.random.seed(rand_number)
+
+    def load(self):
+
+        # download dataset
+        if self.download_flag:
+            self.download()
+
+        if not self._check_integrity():
+            raise RuntimeError('Dataset not found or corrupted.' +
+                               ' You can use download=True to download it')
+
+        if self.train or self.validation:
+            downloaded_list = self.train_list
+        else:
+            downloaded_list = self.test_list
+
+        self.data = []
+        self.targets = []
+        self.course_targets = []
+
+        # now load the picked numpy arrays
+        for file_name, checksum in downloaded_list:
+            file_path = os.path.join(self.root, self.base_folder, file_name)
+            with open(file_path, 'rb') as f:
+                if sys.version_info[0] == 2:
+                    entry = pickle.load(f)
+                else:
+                    entry = pickle.load(f, encoding='latin1')
+                self.data.append(entry['data'])
+                if 'labels' in entry:
+                    self.targets.extend(entry['labels'])
+                else:
+                    self.targets.extend(entry['fine_labels'])
+                if 'coarse_labels' in entry:
+                    self.course_targets.extend(entry['coarse_labels'])
+                
+        self.data = np.vstack(self.data).reshape(-1, 3, 32, 32)
+        self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
+        self._load_meta()
+        img_num_list = (np.array(self.get_img_num_per_cls(self.cls_num, self.imb_type, self.imb_factor)) * self.percent).astype(int)
+        self.gen_imbalanced_data(img_num_list)
+
+    def get_img_num_per_cls(self, cls_num, imb_type, imb_factor):
+        img_max = len(self.data) / cls_num
+        img_num_per_cls = []
+        if imb_type == 'exp':
+            for cls_idx in range(cls_num):
+                num = img_max * (imb_factor**(cls_idx / (cls_num - 1.0)))
+                img_num_per_cls.append(int(num))
+        elif imb_type == 'step':
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max))
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max * imb_factor))
+        else:
+            img_num_per_cls.extend([int(img_max)] * cls_num)
+        return img_num_per_cls
+
+    def gen_imbalanced_data(self, img_num_per_cls):
+        new_data = []
+        new_targets = []
+        targets_np = np.array(self.targets, dtype=np.int64)
+        classes = np.unique(targets_np)
+        np.random.shuffle(classes) # random shuffle class 
+        # classes = (classes + client_idx)%len(img_num_per_cls)
+        self.num_per_cls_dict = dict()
+        for the_class, the_img_num in zip(classes, img_num_per_cls):
+            self.num_per_cls_dict[the_class] = the_img_num
+            idx = np.where(targets_np == the_class)[0]
+            np.random.shuffle(idx)
+            #print(idx)
+            #time.sleep(5)
+            selec_idx = idx[:the_img_num]
+            new_data.append(self.data[selec_idx, ...])
+            new_targets.extend([the_class, ] * the_img_num)
+        new_data = np.vstack(new_data)
+        self.data = new_data
+        self.targets = new_targets
+        
+    def get_cls_num_list(self):
+        cls_num_list = []
+        for i in range(self.cls_num):
+            cls_num_list.append(self.num_per_cls_dict[i])
+        return cls_num_list
+
+
+
 class iIMAGENET_R(iDataset):
     
     base_folder = 'imagenet-r'
@@ -244,6 +445,88 @@ class iIMAGENET_R(iDataset):
 
     def extra_repr(self) -> str:
         return "Split: {split}".format(**self.__dict__)
+
+class IMBALANCEINR(iIMAGENET_R):
+    cls_num = 200
+
+    def __init__(self, root, train=True, transform=None, download_flag=False, percent= 0.4, 
+    imb_type='exp', imb_factor=0.01,seed=-1,tasks=None):
+        self.imb_type = imb_type
+        self.imb_factor = imb_factor
+        self.percent = percent
+        super(IMBALANCEINR, self).__init__(root, train, transform, download_flag,tasks=tasks,seed=seed)
+        # np.random.seed(rand_number)
+
+    def load(self):
+        self.data, self.targets = [], []
+        images_path = os.path.join(self.root, self.base_folder)
+        data_dict = get_data(images_path)
+        y = 0
+        for key in data_dict.keys():
+            num_y = len(data_dict[key])
+            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
+            self.targets.extend([y for i in np.arange(0,num_y)])
+            y += 1
+
+        n_data = len(self.targets)
+        index_sample = [i for i in range(n_data)]
+        import random
+        random.seed(0)
+        random.shuffle(index_sample)
+        if self.train or self.validation:
+            index_sample = index_sample[:int(0.8*n_data)]
+        else:
+            index_sample = index_sample[int(0.8*n_data):]
+
+        self.data = [self.data[i] for i in index_sample]
+        self.targets = [self.targets[i] for i in index_sample]
+        img_num_list = (np.array(self.get_img_num_per_cls(self.cls_num, self.imb_type, self.imb_factor)) * self.percent).astype(int)
+        print(img_num_list)
+        self.gen_imbalanced_data(img_num_list)
+
+    def get_img_num_per_cls(self, cls_num, imb_type, imb_factor):
+        img_max = len(self.data) / cls_num
+        img_num_per_cls = []
+        if imb_type == 'exp':
+            for cls_idx in range(cls_num):
+                num = img_max * (imb_factor**(cls_idx / (cls_num - 1.0)))
+                img_num_per_cls.append(int(num))
+        elif imb_type == 'step':
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max))
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max * imb_factor))
+        else:
+            img_num_per_cls.extend([int(img_max)] * cls_num)
+        return img_num_per_cls
+
+    def gen_imbalanced_data(self, img_num_per_cls):
+        new_data = []
+        new_targets = []
+        targets_np = np.array(self.targets, dtype=np.int64)
+        classes = np.unique(targets_np)
+        np.random.shuffle(classes) # random shuffle class 
+        # classes = (classes + client_idx)%len(img_num_per_cls)
+        self.num_per_cls_dict = dict()
+        for the_class, the_img_num in zip(classes, img_num_per_cls):
+            self.num_per_cls_dict[the_class] = the_img_num
+            idx = np.where(targets_np == the_class)[0]
+            np.random.shuffle(idx)
+            #print(idx)
+            #time.sleep(5)
+            selec_idx = idx[:the_img_num]
+            new_data.extend([self.data[x] for x in selec_idx])
+            new_targets.extend([the_class, ] * the_img_num)
+        #new_data = np.vstack(new_data)
+        self.data = new_data
+        self.targets = new_targets
+        
+    def get_cls_num_list(self):
+        cls_num_list = []
+        for i in range(self.cls_num):
+            cls_num_list.append(self.num_per_cls_dict[i])
+        return cls_num_list
+
 
 
 class iDOMAIN_NET(iIMAGENET_R):
@@ -343,3 +626,210 @@ def jpg_image_to_array(image_path):
         im_arr = np.fromstring(image.tobytes(), dtype=np.uint8)
         im_arr = im_arr.reshape((image.size[1], image.size[0], 3))                                   
     return im_arr
+
+def use_int(filename):
+    return int(filename.split('_')[1])
+
+class QPdata_multi(data.Dataset):
+    def __init__(
+        self,
+        root: str,
+        is_valid_file: Optional[Callable[[str], bool]] = None,
+    ) -> None:
+        self.root = root
+        classes, class_to_idx = self.find_classes(self.root)
+        samples = self.make_dataset(self.root, class_to_idx)
+
+        self.classes = classes
+        self.class_to_idx = class_to_idx
+        self.samples = samples
+
+    def make_dataset(self,directory, class_to_idx):
+        if class_to_idx is None:
+            raise ValueError("The class_to_idx parameter cannot be None.")
+
+        instances = []
+        available_classes = set()
+        for target_class in sorted(class_to_idx.keys()):
+            class_index = class_to_idx[target_class]
+            target_dir = os.path.join(directory, target_class)
+            if not os.path.isdir(target_dir):
+                continue
+            for root, _, fnames in sorted(os.walk(target_dir, followlinks=True)):
+                for fname in sorted(fnames):
+                    path = os.path.join(root, fname)
+                    
+                    if len(path.split('/')[-1].split('_')) is 3:
+                        idx = str(int(path.split('/')[-1].split('_')[-1].rstrip('.pt')) + 1)
+                    else:
+                        idx = str(2)
+                    class_num = target_class.split('_')[-1]
+                    prompt_base = target_class.split('_')[:-1]
+                    if idx == '2':
+                        class_num  = str(int(class_num) - 50)
+                    elif idx == '3':
+                        class_num = str(int(class_num) - 60)
+                    prompt_base = '_'.join(prompt_base)
+                    prompt_base += '_' + class_num
+                    if idx == '2':
+                        myfname = 'p' + fname[1:]
+                        prompt_file = os.path.join(prompt_base,myfname)
+                    elif idx == '1':
+                        myfname = fname[:-5]
+                        myfname = 'p' + myfname[1:]
+                        prompt_file = os.path.join(prompt_base,myfname+'.pt')
+                    elif idx == '3' :
+                        myfname = fname[:-5]
+                        myfname = 'p' + myfname[1:]
+                        prompt_file = os.path.join(prompt_base,myfname+'.pt')
+                    prompt_path = os.path.join('/'.join(directory.split('/')[:-2]) + '/prompts_' + idx, prompt_file)
+                    item = path, prompt_path,class_index
+                    instances.append(item)
+                    if target_class not in available_classes:
+                        available_classes.add(target_class)
+
+        empty_classes = set(class_to_idx.keys()) - available_classes
+        if empty_classes:
+            msg = f"Found no valid file for the classes {', '.join(sorted(empty_classes))}. "
+            raise FileNotFoundError(msg)
+
+        return instances
+
+    def find_classes(self, directory):
+        filenames = [entry.name for entry in os.scandir(directory) if entry.is_dir()]
+        classes = sorted(filenames,key=use_int)
+        if not classes:
+            raise FileNotFoundError(f"Couldn't find any class folder in {directory}.")
+
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        return classes, class_to_idx
+
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        path, prompt_path,target = self.samples[index]
+        query = torch.load(path)
+        prompt = torch.load(prompt_path)
+        return query, prompt, target
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+class QPdata_single(data.Dataset):
+    def __init__(
+        self,
+        root: str
+    ) -> None:
+        self.root = root
+        classes, class_to_idx = self.find_classes(self.root)
+        samples = self.make_dataset(self.root, class_to_idx)
+
+        self.classes = classes
+        self.class_to_idx = class_to_idx
+        self.samples = samples
+
+    def make_dataset(self,directory, class_to_idx):
+        if class_to_idx is None:
+            raise ValueError("The class_to_idx parameter cannot be None.")
+
+        instances = []
+        available_classes = set()
+        for target_class in sorted(class_to_idx.keys()):
+            class_index = class_to_idx[target_class]
+            target_dir = os.path.join(directory, target_class)
+            if not os.path.isdir(target_dir):
+                continue
+            for root, _, fnames in sorted(os.walk(target_dir, followlinks=True)):
+                for fname in sorted(fnames):
+                    path = os.path.join(root, fname)
+                    myfname = 'p' + fname[1:]
+                    prompt_file = os.path.join(target_class,myfname)
+                    prompt_path = os.path.join('/'.join(directory.split('/')[:-2]) + '/prompts_' + directory.split('/')[-2].split('_')[-1] , prompt_file)
+                    item = path, prompt_path, class_index
+                    instances.append(item)
+                    if target_class not in available_classes:
+                        available_classes.add(target_class)
+
+        empty_classes = set(class_to_idx.keys()) - available_classes
+        if empty_classes:
+            msg = f"Found no valid file for the classes {', '.join(sorted(empty_classes))}. "
+            raise FileNotFoundError(msg)
+
+        return instances
+
+    def find_classes(self, directory):
+        filenames = [entry.name for entry in os.scandir(directory) if entry.is_dir()]
+        classes = sorted(filenames,key=use_int)
+        if not classes:
+            raise FileNotFoundError(f"Couldn't find any class folder in {directory}.")
+
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        return classes, class_to_idx
+
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        path, prompt_path,target = self.samples[index]
+        query = torch.load(path)
+        prompt = torch.load(prompt_path)
+        return query, prompt, target
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+
+class Qdata_only(data.Dataset):
+    def __init__(
+        self,
+        root: str
+    ) -> None:
+        self.root = root
+        classes, class_to_idx = self.find_classes(self.root)
+        samples = self.make_dataset(self.root, class_to_idx)
+
+        self.classes = classes
+        self.class_to_idx = class_to_idx
+        self.samples = samples
+
+    def make_dataset(self,directory, class_to_idx):
+        if class_to_idx is None:
+            raise ValueError("The class_to_idx parameter cannot be None.")
+
+        instances = []
+        available_classes = set()
+        for target_class in sorted(class_to_idx.keys()):
+            class_index = class_to_idx[target_class]
+            target_dir = os.path.join(directory, target_class)
+            if not os.path.isdir(target_dir):
+                continue
+            for root, _, fnames in sorted(os.walk(target_dir, followlinks=True)):
+                for fname in sorted(fnames):
+                    path = os.path.join(root, fname)
+                    
+                    item = path, class_index
+                    instances.append(item)
+                    if target_class not in available_classes:
+                        available_classes.add(target_class)
+
+        empty_classes = set(class_to_idx.keys()) - available_classes
+        if empty_classes:
+            msg = f"Found no valid file for the classes {', '.join(sorted(empty_classes))}. "
+            raise FileNotFoundError(msg)
+
+        return instances
+
+    def find_classes(self, directory):
+        filenames = [entry.name for entry in os.scandir(directory) if entry.is_dir()]
+        classes = sorted(filenames,key=use_int)
+        if not classes:
+            raise FileNotFoundError(f"Couldn't find any class folder in {directory}.")
+
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        return classes, class_to_idx
+
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        path, target = self.samples[index]
+        query = torch.load(path)
+        return query, target
+
+    def __len__(self) -> int:
+        return len(self.samples)

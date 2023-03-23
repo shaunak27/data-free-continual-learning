@@ -2,10 +2,10 @@
 # experiment settings
 SPLIT=10
 DATASET=ImageNet_R
-N_CLASS=200
+N_CLASS=100
 
 # save directory
-DATE=l2p_singlelayer_vit_50to80
+DATE=l2p_singlelayer_vit_0to120
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -70,8 +70,8 @@ MU=1
 # l2p
 python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 -1 -1 \
-    --log_dir ${OUTDIR}/vit/l2p_single-layer  
+    --prompt_param 100 20 -1 -1 --uhc --load_model_from ./fedavg \
+    --log_dir ${OUTDIR}/vit/  
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

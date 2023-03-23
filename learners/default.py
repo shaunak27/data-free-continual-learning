@@ -220,7 +220,10 @@ class NormalNN(nn.Module):
 
     def generate_kd_data(self, dataloader):
         self.model.eval()
-        for i, (input, target, task) in tqdm(enumerate(dataloader),total=len(dataloader)):
+        cwd = os.getcwd()
+        acc = AverageMeter()
+        pbar = tqdm(enumerate(dataloader),total=len(dataloader))
+        for i, (input, target, task) in pbar:
             with torch.no_grad():
                 input = input.cuda()
                 target = target.cuda()
@@ -234,21 +237,25 @@ class NormalNN(nn.Module):
                 data_grad = z.grad.data
                 z = (z - alpha*data_grad).detach_()
             #print([(a.item(), b.item()) for a,b in zip(torch.argmax(out,dim=1),target)])
-            p_hat, _, _ = self.model.module.prompt.forward(z,0,None)
-            p_hat = p_hat.detach().cpu()
+            acc = accumulate_acc(out, target, None, acc, topk=(1,))
+            pbar.set_description(f"Accuracy : {acc.avg}")
+            # p_hat, _, _ = self.model.module.prompt.forward(z,0,None,hepco=True)
+            # p_hat = p_hat.detach().cpu()
             temp_z = torch.zeros_like(z[0])
-            temp_p = torch.zeros_like(p_hat[0])
+            # temp_p = torch.zeros_like(p_hat[0])
             for idx in range(len(target)):
                 temp_z.data.copy_(z[idx])
-                temp_p.data.copy_(p_hat[idx])
-                torch.save(temp_z,f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/queries_2/z_{idx + i*len(target)}_{target[idx].item()}.pt")
-                torch.save(temp_p,f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/prompts_2/p_{idx + i*len(target)}_{target[idx].item()}.pt")
+                # temp_p.data.copy_(p_hat[idx])
+                if not os.path.exists(os.path.join(cwd,f"data/kd_data/queries_{self.config['split']}/class_{target[idx]}/")) : os.makedirs(os.path.join(cwd,f"data/kd_data/queries_{self.config['split']}/class_{target[idx]}/"))
+                # if not os.path.exists(os.path.join(cwd,f"data/kd_data/prompts_{self.config['split']}/class_{target[idx]}/")) : os.makedirs(os.path.join(cwd,f"data/kd_data/prompts_{self.config['split']}/class_{target[idx]}/"))
+                torch.save(temp_z.cpu(),os.path.join(cwd,f"data/kd_data/queries_{self.config['split']}/class_{target[idx]}/z_{idx + i*len(target)}.pt"))
+                # torch.save(temp_p.cpu(),os.path.join(cwd,f"data/kd_data/prompts_{self.config['split']}/class_{target[idx]}/p_{idx + i*len(target)}.pt"))
 
     def quick(self,dataloader):
         self.model.eval()
         for i, (input, target, task) in tqdm(enumerate(dataloader),total=len(dataloader)):
             #print(target[0].item())
-            z = torch.load(f"/home/shaunak/fed_prompt/data-free-continual-learning/data/kd_data/queries/z_{0}.pt").cpu().cuda()
+            z = torch.load(os.path.join(os.getcwd(),f"data/kd_data/queries_{self.config['split']}/class_{target[0]}/z_{i*len(target)}.pt")).cpu().cuda()
             z = z.unsqueeze(0)
             out = self.model.forward(x=None, z=z)
             print(target[0].item(), '---',torch.argmax(out,dim=1).item())
@@ -256,9 +263,9 @@ class NormalNN(nn.Module):
     
     def train_prompts(self,dataloader):
         loss_fn = nn.MSELoss(reduction='mean')
-        for epoch in range(self.config['schedule'][-1]):
+        for _ in range(self.config['schedule'][-1]+5):
             total_loss = 0
-            for i, (input, target) in tqdm(enumerate(dataloader),total=len(dataloader)):
+            for i, (input, target, _) in tqdm(enumerate(dataloader),total=len(dataloader)):
                 with torch.no_grad():
                     input = input.cuda()
                     target = target.cuda()
@@ -269,7 +276,28 @@ class NormalNN(nn.Module):
                 total_loss += loss.item()
                 self.optimizer.step()
             print(total_loss)
-        self.save_model('./model_kd')
+        self.save_model(self.config['load_model_from'])
+        return
+
+    def train_classifiers(self,dataloader):
+        #acc = AverageMeter()
+        for epoch in range(self.config['schedule'][-1]):
+            acc = AverageMeter()
+            total_loss = 0
+            for i, (input, _, target) in tqdm(enumerate(dataloader),total=len(dataloader)):
+                with torch.no_grad():
+                    input = input.cuda()
+                    target = target.cuda()
+                out = self.model.forward(x=None,z=input)
+                loss = self.criterion(out,target,data_weights=1)
+                self.optimizer.zero_grad()
+                loss.backward()
+                total_loss += loss.item()
+                self.optimizer.step()
+                acc = accumulate_acc(out, target, None, acc, topk=(1,))
+            print(total_loss)
+            print('Accuracy : ',acc.avg)
+        self.save_model(self.config['load_model_from'])
             
     def latent_forward(self, dataloader):
         self.model.eval()
@@ -403,7 +431,10 @@ class NormalNN(nn.Module):
         for key in model_state.keys():  # Always save it to cpu
             model_state[key] = model_state[key].cpu()
         self.log('=> Saving class model to:', filename)
-        torch.save(model_state, filename + 'class.pth')
+        if filename.endswith('.pth'):
+            torch.save(model_state, filename)
+        else:
+            torch.save(model_state, filename + 'class.pth')
         self.log('=> Save Done')
 
     def load_model(self, filename):
@@ -465,7 +496,7 @@ class NormalNN(nn.Module):
     def create_model(self):
         cfg = self.config
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim,template_style=cfg['template_style']) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
+        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
 
         return model
 

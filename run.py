@@ -22,6 +22,8 @@ def create_args():
                          help="The list of gpuid, ex:--gpuid 3 1. Negative value means cpu-only")
     parser.add_argument('--log_dir', type=str, default="outputs/out",
                          help="Save experiments results in dir for future plotting!")
+    parser.add_argument('--load_model_from', type=str, default=None,
+                         help="Save experiments results in dir for future plotting!")
     parser.add_argument('--learner_type', type=str, default='default', help="The type (filename) of learner")
     parser.add_argument('--learner_name', type=str, default='NormalNN', help="The class name of learner")
     parser.add_argument('--debug_mode', type=int, default=0, metavar='N',
@@ -51,6 +53,7 @@ def create_args():
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--latent', default=False, action='store_true', help='run latent generation')
     parser.add_argument('--hepco', default=False, action='store_true', help='run hepco')
+    parser.add_argument('--uhc', default=False, action='store_true', help='unify classifiers')
     return parser
 
 def get_args(argv):
@@ -154,7 +157,22 @@ if __name__ == '__main__':
         # set up a trainer
         trainer = Trainer(args, seed, metric_keys, save_keys)
         trainer.latent_gen()
-    #start_r = 0 #TODO : comment out
+    if args.uhc:
+        print('************************************')
+        print('* STARTING TRIAL ' + str(0+1))
+        print('************************************')
+
+        # set random seeds
+        seed = 0
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+
+        # set up a trainer
+        trainer = Trainer(args, seed, metric_keys, save_keys)
+        trainer.unify_classifiers()
+    start_r = 0 #TODO : comment out
     for r in range(start_r, args.repeat):
 
         print('************************************')

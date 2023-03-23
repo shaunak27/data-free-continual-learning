@@ -4,7 +4,7 @@ other_split_size: 100
 start_class: 0
 end_class: 100
 schedule:
-- 20
+- 4
 schedule_type: cosine
 batch_size: 64
 optimizer: Adam
@@ -20,4 +20,5 @@ workers: 8
 validation: False
 train_aug: True
 rand_split: True
-freeze_encoder: False
+freeze_encoder: True
+split: 9

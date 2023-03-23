@@ -1,11 +1,11 @@
 # bash experiments/imagenet-r.sh
 # experiment settings
 SPLIT=10
-DATASET=ImageNet_R
-N_CLASS=200
+DATASET=CIFAR10 #ImageNet_R
+N_CLASS=10
 
 # save directory
-DATE=l2p_singlelayer_vit_0to100
+DATE=cifar10
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
@@ -13,6 +13,7 @@ GPUID='0 1'
 CONFIG_VIT=configs/imnet-r_vit.yaml
 CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
 CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
+CONFIG_VIT_P_CIFAR=configs/cifar100_vit_prompt.yaml
 CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
 REPEAT=1
 MEMORY=0
@@ -69,10 +70,10 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 -1 -1 \
-    --log_dir ${OUTDIR}/vit/l2p_single-layer  
+python -u run.py --config $CONFIG_VIT_P_CIFAR --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P --uhc \
+    --prompt_param 18 6 1 -1 \
+    --log_dir ${OUTDIR}/vit-l2p --load_model_from './cifar_last_merged'
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

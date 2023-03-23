@@ -21,3 +21,4 @@ validation: False
 train_aug: True
 rand_split: True
 freeze_encoder: False
+split: None
