@@ -26,6 +26,7 @@ class Trainer:
         self.log_dir = args.log_dir
         self.batch_size = args.batch_size
         self.workers = args.workers
+        self.n_clients = args.n_clients
         
         # model load directory
         self.model_top_dir = args.log_dir
