@@ -14,6 +14,67 @@ def tensor_prompt(a, b, c=None):
         p = torch.nn.Parameter(torch.FloatTensor(a,b,c), requires_grad=True)
     nn.init.uniform_(p)
     return p
+class DiversityLoss(nn.Module):
+    """
+    Diversity loss for improving the performance.
+    """
+    def __init__(self, metric):
+        """
+        Class initializer.
+        """
+        super().__init__()
+        self.metric = metric
+
+    def compute_distance(self, tensor1, tensor2, metric):
+        """
+        Compute the distance between two tensors.
+        """
+        if metric == 'l1':
+            return torch.abs(tensor1 - tensor2).mean(dim=(2,))
+        elif metric == 'l2':
+            return torch.pow(tensor1 - tensor2, 2).mean(dim=(2,))
+        elif metric == 'cosine':
+            return 1 - self.cosine(tensor1, tensor2)
+        else:
+            raise ValueError(metric)
+
+    def pairwise_distance(self, tensor, how):
+        """
+        Compute the pairwise distances between a Tensor's rows.
+        """
+        n_data = tensor.size(0)
+        tensor1 = tensor.expand((n_data, n_data, tensor.size(1)))
+        tensor2 = tensor.unsqueeze(dim=1)
+        return self.compute_distance(tensor1, tensor2, how)
+
+    def forward(self, noises, layer):
+        """
+        Forward propagation.
+        """
+        if len(layer.shape) > 2:
+            layer = layer.view((layer.size(0), -1))
+        layer_dist = self.pairwise_distance(layer, how=self.metric)
+        noise_dist = self.pairwise_distance(noises, how='l2')
+        return torch.exp(torch.mean(-noise_dist * layer_dist))
+
+class Generator(nn.Module):
+    #mlp with 2 hidden layers
+    def __init__(self):
+        super(Generator, self).__init__()
+        self.embedding = nn.Embedding(200, 32) #(num_classes, embedding_dim)
+        self.net = nn.Sequential(
+            nn.Linear(64, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Linear(256, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
+            nn.Linear(1024, 768),
+        )
+    def forward(self, y,eps):
+        z = self.embedding(y)
+        z = torch.cat((eps, z), 1)
+        return self.net(z)
 
 class DualPrompt(nn.Module):
     def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
@@ -65,7 +126,7 @@ class DualPrompt(nn.Module):
                 setattr(self, f'freq_past_{e}',torch.nn.Parameter(f_, requires_grad=False))
 
 
-    def forward(self, x_querry, l, x_block, train=False, task_id=None):
+    def forward(self, x_querry, l, x_block, train=False, task_id=None, hepco=False):
 
         # e prompts
         e_valid = False
@@ -165,6 +226,11 @@ class DualPrompt(nn.Module):
             p_return = None
             loss = 0
 
+        if hepco:
+            if train:
+                return P_
+            else:
+                return P_
         # return
         if train:
             return p_return, 0, x_block #p_return, loss, x_block TODO : uncomment
@@ -237,8 +303,11 @@ class ResNetZoo(nn.Module):
         self.feat = zoo_model
         
 
-    def forward(self, x, pen=False, train=False):
+    def forward(self, x, pen=False, train=False,z=None):
 
+        if z is not None:
+            out = self.last(z)
+            return out
         if self.prompt is not None:
             with torch.no_grad():
                 q, _ = self.feat(x)

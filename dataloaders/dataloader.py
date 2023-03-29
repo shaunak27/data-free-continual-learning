@@ -19,7 +19,7 @@ class iDataset(data.Dataset):
     def __init__(self, root,
                 train=True, transform=None,
                 download_flag=False, lab=True, swap_dset = None, 
-                tasks=None, seed=-1, rand_split=False, validation=False, kfolds=5):
+                tasks=None, seed=-1, rand_split=False, validation=False, kfolds=5,client_idx = -1):
 
         # process rest of args
         self.root = os.path.expanduser(root)
@@ -118,7 +118,7 @@ class iDataset(data.Dataset):
     def load_dataset(self, t, train=True):
         
         if train:
-            self.data, self.targets = self.archive[t] 
+            self.data, self.targets = self.archive[t]
         else:
             self.data    = np.concatenate([self.archive[s][0] for s in range(t+1)], axis=0)
             self.targets = np.concatenate([self.archive[s][1] for s in range(t+1)], axis=0)
@@ -375,6 +375,112 @@ class iIMAGENET_R(iDataset):
 
     def extra_repr(self) -> str:
         return "Split: {split}".format(**self.__dict__)
+
+class IMBALANCEINR(iIMAGENET_R):
+
+    def __init__(self, root, train=True, transform=None, download_flag=False, percent= 0.1, 
+    imb_type='exp', imb_factor=0.01,seed=-1,tasks=None,validation=False,rand_split=False,client_idx=0):
+        self.imb_type = imb_type
+        self.imb_factor = imb_factor
+        self.percent = percent
+        self.client_idx = client_idx
+        super(IMBALANCEINR, self).__init__(root, train, transform, download_flag,tasks=tasks,seed=seed,validation=validation,rand_split=rand_split)
+        # np.random.seed(rand_number)
+
+    def load(self):
+        self.data, self.targets = [], []
+        images_path = os.path.join(self.root, self.base_folder)
+        data_dict = get_data(images_path)
+        y = 0
+        for key in data_dict.keys():
+            num_y = len(data_dict[key])
+            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
+            self.targets.extend([y for i in np.arange(0,num_y)])
+            y += 1
+
+        n_data = len(self.targets)
+        index_sample = [i for i in range(n_data)]
+        import random
+        random.seed(0)
+        random.shuffle(index_sample)
+        if self.train or self.validation:
+            index_sample = index_sample[:int(0.8*n_data)]
+        else:
+            index_sample = index_sample[int(0.8*n_data):]
+
+        self.data = [self.data[i] for i in index_sample]
+        self.targets = [self.targets[i] for i in index_sample]
+
+    def load_dataset(self, t, train=True,label_counts=None,seed=-1,cutoff=False):
+        
+        if train:
+            self.data, self.targets = self.archive[t]
+            self.cls_num = len(np.unique(self.targets))
+            if self.client_idx >= 0 and self.train:
+                img_num_list = (np.array(self.get_img_num_per_cls(self.cls_num, self.imb_type, self.imb_factor)) * self.percent).astype(int)
+                if cutoff :
+                    img_num_list[-8:] = [0]*8
+                print(img_num_list)
+                classes = self.gen_imbalanced_data(img_num_list,seed=seed) 
+                for c,i in zip(classes,img_num_list):
+                    label_counts[c] = i
+                return label_counts
+
+
+        else:
+            self.data    = np.concatenate([self.archive[s][0] for s in range(t+1)], axis=0)
+            self.targets = np.concatenate([self.archive[s][1] for s in range(t+1)], axis=0)
+        self.t = t
+
+        #print(np.unique(self.targets))
+
+    def get_img_num_per_cls(self, cls_num, imb_type, imb_factor):
+        img_max = len(self.data) / cls_num
+        img_num_per_cls = []
+        if imb_type == 'exp':
+            for cls_idx in range(cls_num):
+                num = img_max * (imb_factor**(cls_idx / (cls_num - 1.0)))
+                img_num_per_cls.append(int(num))
+        elif imb_type == 'step':
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max))
+            for cls_idx in range(cls_num // 2):
+                img_num_per_cls.append(int(img_max * imb_factor))
+        else:
+            img_num_per_cls.extend([int(img_max)] * cls_num)
+        return img_num_per_cls
+
+    def gen_imbalanced_data(self, img_num_per_cls,seed=-1):
+        new_data = []
+        new_targets = []
+        targets_np = np.array(self.targets, dtype=np.int64)
+        classes = np.unique(targets_np)
+        t = 1000 * time.time() # current time in milliseconds
+        if seed >= 0:
+            np.random.seed(seed)
+        else:
+            np.random.seed(int(t) % 2**32)
+        np.random.shuffle(classes) # random shuffle class 
+        print(classes)
+        # classes = (classes + client_idx)%len(img_num_per_cls)
+        self.num_per_cls_dict = dict()
+        for the_class, the_img_num in zip(classes, img_num_per_cls):
+            self.num_per_cls_dict[the_class] = the_img_num
+            idx = np.where(targets_np == the_class)[0]
+            np.random.shuffle(idx)
+            selec_idx = idx[:the_img_num]
+            new_data.extend([self.data[x] for x in selec_idx])
+            new_targets.extend([the_class, ] * len(selec_idx))
+        #new_data = np.vstack(new_data)
+        self.data = new_data
+        self.targets = new_targets
+        return classes
+        
+    def get_cls_num_list(self):
+        cls_num_list = []
+        for i in range(self.cls_num):
+            cls_num_list.append(self.num_per_cls_dict[i])
+        return cls_num_list
 
 
 class iDOMAIN_NET(iIMAGENET_R):

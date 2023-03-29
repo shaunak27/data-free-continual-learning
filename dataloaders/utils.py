@@ -35,6 +35,8 @@ dataset_stats = {
                  'size' : 64},   
     'ImageNet_R': {
                  'size' : 224}, 
+    'IMBALANCEINR': {
+                    'size' : 224},
     'DomainNet': {
                  'size' : 224},  
                 }
@@ -61,7 +63,7 @@ def get_transform(dataset='cifar100', phase='test', aug=True, resize_imnet=False
             transforms.Normalize(dset_mean, dset_std),
                             ])
     else:
-        if dataset.startswith('ImageNet') or dataset == 'DomainNet':
+        if dataset.startswith('ImageNet') or dataset == 'DomainNet' or dataset == 'IMBALANCEINR':
             transform_list.extend([
                 transforms.Resize((224,224),interpolation=Image.BICUBIC),
                 #transforms.CenterCrop(224),

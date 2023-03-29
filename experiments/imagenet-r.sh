@@ -1,18 +1,15 @@
 # bash experiments/imagenet-r.sh
 # experiment settings
 SPLIT=10
-DATASET=ImageNet_R
+DATASET=IMBALANCEINR
 N_CLASS=200
 
 # save directory
-DATE=l2p_multilayer_vit_try2
+DATE=hepco_v2.0_.3
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
-GPUID='0 1'
-CONFIG_VIT=configs/imnet-r_vit.yaml
-CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
-CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
+GPUID='0 1 2 3'
 CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
 REPEAT=1
 MEMORY=0
@@ -56,7 +53,7 @@ mkdir -p $OUTDIR
 
 
 
-MU=1
+MU=0
 # ablate attention
 # python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name DualPrompt \
@@ -69,9 +66,9 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
-python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 0.3 --percent 0.1 --n_clients 5 --n_rounds 10 \
     --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # l2p

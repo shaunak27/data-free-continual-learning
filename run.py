@@ -50,6 +50,13 @@ def create_args():
                          help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
+    parser.add_argument('--n_clients', type=int, default=5, help="number of clients")
+    parser.add_argument('--n_rounds', type=int, default=20, help="number of rounds")
+    parser.add_argument('--kl', default=False, action='store_true', help='use kl')
+    parser.add_argument('--hepco', default=False, action='store_true', help='use hepco')
+    parser.add_argument('--imbalance', type=float, default=0.01, help="imbalance")
+    parser.add_argument('--percent', type=float, default=0.3, help="percent")
+    parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
     return parser
 
 def get_args(argv):
@@ -80,7 +87,7 @@ if __name__ == '__main__':
 
     # duplicate output stream to output file
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
-    log_out = args.log_dir + '/output.log'
+    log_out = args.log_dir + '/output_kdfromscratch.log'
     sys.stdout = Logger(log_out)
 
     # save args
@@ -144,10 +151,10 @@ if __name__ == '__main__':
         max_task = trainer.max_task
         if r == 0: 
             for mkey in metric_keys: 
-                avg_metrics[mkey]['global'] = np.zeros((max_task,seed+1))
+                avg_metrics[mkey]['global'] = np.zeros((max_task,args.n_clients*args.n_rounds)) #TODO : should n_clientts replace seed
                 if (not (mkey in global_only)):
-                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,seed+1))
-                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed+1))
+                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.n_clients*args.n_rounds))
+                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.n_clients*args.n_rounds))
 
         # train model
         if not args.only_eval_zs:
