@@ -88,7 +88,7 @@ if __name__ == '__main__':
 
     # duplicate output stream to output file
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
-    log_out = args.log_dir + '/output.log'
+    log_out = args.log_dir + '/output_new.log'
     sys.stdout = Logger(log_out)
 
     # save args

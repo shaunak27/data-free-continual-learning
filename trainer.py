@@ -43,7 +43,7 @@ class Trainer:
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        wandb.init(project="hepcov2.7",name=args.wandb_name)
+        wandb.init(project="hepcov3.0",name=args.wandb_name)
         if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
             num_classes = 10
@@ -477,7 +477,7 @@ class Trainer:
         self.label_counts_server_last_task = {}
         for j in range(self.num_classes):
             self.label_counts_server_last_task[j] = 0
-
+   
         # for each task
         for i in range(self.max_task): ## SHAUN : See learner config
             random.seed(self.seed*100 + i)
@@ -497,8 +497,8 @@ class Trainer:
             # add valid class to classifier
             self.server.add_valid_output_dim(self.add_dim)
             self.server.task_count = i
-            print('======================', train_name, '=======================')
-
+ 
+            print('======================', train_name, '=======================')   
             for r in range(self.n_rounds):
                 self.learners = [copy.deepcopy(self.server) for _ in range(self.n_clients)]
                 self.label_counts = {}
@@ -604,7 +604,11 @@ class Trainer:
                         server_temp_table['predislastacc'].append(self.server_task_eval(i-1, all_tasks=True))
                     self.train_generator(round=r,task=i)
                     self.knowledge_distillation()
-                
+                    
+                server_model_save_dir = self.model_top_dir + f'_server_{r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+                if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir) 
+                self.server.save_model(server_model_save_dir)
+
                 for row in range(self.num_classes):
                     for idx1 in range(self.n_clients):
                         self.label_counts_server[row] += self.label_counts[idx1][row]
