@@ -57,6 +57,7 @@ def create_args():
     parser.add_argument('--imbalance', type=float, default=0.01, help="imbalance")
     parser.add_argument('--percent', type=float, default=0.3, help="percent")
     parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
+    parser.add_argument('--wandb_name', type=str, default="test", help="wandb name")
     return parser
 
 def get_args(argv):
@@ -87,16 +88,16 @@ if __name__ == '__main__':
 
     # duplicate output stream to output file
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
-    log_out = args.log_dir + '/output_kdfromscratch.log'
+    log_out = args.log_dir + '/output.log'
     sys.stdout = Logger(log_out)
 
     # save args
     with open(args.log_dir + '/args.yaml', 'w') as yaml_file:
         yaml.dump(vars(args), yaml_file, default_flow_style=False)
         
-    metric_keys = ['acc','mem','time','plastic','til','cka']
+    metric_keys = ['acc','lastacc','time','plastic','til','cka','predisacc','predislastacc']
     save_keys = ['global', 'pt', 'pt-local']
-    global_only = ['mem','time','plastic','til','cka']
+    global_only = ['lastacc','time','plastic','til','cka','predisacc','predislastacc']
     avg_metrics = {}
     for mkey in metric_keys: 
         avg_metrics[mkey] = {}
