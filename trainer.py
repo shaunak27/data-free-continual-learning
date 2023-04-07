@@ -40,6 +40,7 @@ class Trainer:
         # model load directory
         self.model_top_dir = args.log_dir
         self.cutoff = args.cutoff
+        self.ignore_past_server = args.ignore_past_server
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
@@ -309,6 +310,7 @@ class Trainer:
     def knowledge_distillation(self):
         num_epochs = 200
         batch_size = 32
+        old_batch_size = 4
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
         optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=1e-4,betas=(0.9, 0.999),
@@ -339,7 +341,7 @@ class Trainer:
                     mse_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels_new] * mse(self.server.model.module.prompt.forward(z_new,layer,None,train=True,hepco=True), self.learners[j].model.module.prompt.forward(z_new,layer,None,train=True,hepco=True))).sum() 
             
             if self.prev_server is not None:
-                labels_old = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
+                labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
                 eps_old = torch.randn(labels_old.shape[0], 32).cuda()
                 z_old = self.generator_old(labels_old,eps_old)
                 for layer in self.server.model.module.prompt.e_layers:
@@ -356,7 +358,7 @@ class Trainer:
                 eps_new = torch.randn(labels_new.shape[0], 32).cuda() 
                 z_new = self.generator_new(labels_new,eps_new)
                 if self.prev_server is not None:
-                    labels_old = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
+                    labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
                     eps_old = torch.randn(labels_old.shape[0], 32).cuda()
                     z_old = self.generator_old(labels_old,eps_old)
                     z_combined = torch.cat((z_new,z_old),dim=0)
@@ -558,7 +560,7 @@ class Trainer:
                     avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
 
                     # save model
-                    self.learners[idx].save_model(model_save_dir)
+                    self.learners[idx].save_model(model_save_dir) 
 
                     # T-sne plots
                     if self.vis_flag:
@@ -595,34 +597,43 @@ class Trainer:
                     for idx1 in range(self.n_clients):
                         self.label_counts_round[row] += self.label_counts[idx1][row]
 
-                self.communicate()
-                if self.hepco:
-                    print('Pre distillation:')
-                    server_temp_table['predisacc'].append(self.server_task_eval(i, all_tasks=True))         
-                    if i >0:
-                        print('Pre distillation last acc:')
-                        server_temp_table['predislastacc'].append(self.server_task_eval(i-1, all_tasks=True))
-                    self.train_generator(round=r,task=i)
-                    self.knowledge_distillation()
-                    
                 server_model_save_dir = self.model_top_dir + f'_server_{r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-                if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir) 
-                self.server.save_model(server_model_save_dir)
+                prev_server_model_save_dir = self.model_top_dir + f'_server_{self.n_rounds-1}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i-1]+'/'
+                
+                try:
+                    self.server.load_model(server_model_save_dir)
+                    if i > 0:
+                        self.prev_server.load_model(prev_server_model_save_dir)
+                except:
+                    self.communicate()
+                    if self.hepco:
+                        print('Pre distillation:')
+                        server_temp_table['predisacc'].append(self.server_task_eval(i, all_tasks=True))         
+                        # if i >0:
+                        #     print('Pre distillation last acc:')
+                        #     server_temp_table['predislastacc'].append(self.server_task_eval(i-1, all_tasks=True))
+                        if self.ignore_past_server:
+                            self.prev_server = None
+                        self.train_generator(round=r,task=i)
+                        self.knowledge_distillation()
+                    
+                if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir)
+                self.server.save_model(server_model_save_dir) 
 
                 for row in range(self.num_classes):
                     for idx1 in range(self.n_clients):
                         self.label_counts_server[row] += self.label_counts[idx1][row]
 
-                server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True))
+                server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True)) 
+                server_temp_table['plastic'].append(self.server_task_eval(i, all_tasks=False))
                 if i >0:
                     print('Last acc:')
                     server_temp_table['lastacc'].append(self.server_task_eval(i-1, all_tasks=True))
                 
-                wandb.log({'server_acc':server_temp_table['acc'][-1]})
-
+                wandb.log({'server_acc':server_temp_table['acc'][-1],'server_plastic':server_temp_table['plastic'][-1]})
                 for mkey in self.metric_keys:
                     save_file = server_temp_dir + mkey + '.csv'
-                    np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f') 
+                    np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f')
 
             self.prev_server = copy.deepcopy(self.server)
             for cls in range(self.num_classes):

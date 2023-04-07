@@ -58,6 +58,8 @@ def create_args():
     parser.add_argument('--percent', type=float, default=0.3, help="percent")
     parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
     parser.add_argument('--wandb_name', type=str, default="test", help="wandb name")
+    parser.add_argument('--ignore_past_server', default=False, action='store_true', help='ignore past server')
+
     return parser
 
 def get_args(argv):
