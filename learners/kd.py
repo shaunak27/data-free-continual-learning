@@ -87,7 +87,7 @@ class LWF(NormalNN):
 
                     # verify in train mode
                     self.model.train()
-
+                    if y.size(0) < 2: continue
                     # send data to gpu
                     if self.gpu:
                         x = x.cuda()
