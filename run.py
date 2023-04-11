@@ -162,11 +162,7 @@ if __name__ == '__main__':
         # train model
         if not args.only_eval_zs:
             avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
-            avg_metrics = trainer.evaluate(avg_metrics)
-        else:
-            avg_metrics = trainer.evaluate_zs(avg_metrics)
         # evaluate model
-            
 
         # save results
         for mkey in metric_keys: 
@@ -194,9 +190,9 @@ if __name__ == '__main__':
                             yaml.dump(yaml_results, yaml_file, default_flow_style=False)
 
         # Print the summary so far
-        print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
-        for mkey in metric_keys: 
-            print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
+        # print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
+        # for mkey in metric_keys: 
+        #     print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
     
     
 

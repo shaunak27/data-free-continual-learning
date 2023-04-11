@@ -258,7 +258,7 @@ class Trainer:
                     kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda() * mse(torch.softmax(self.server.model.forward(x=None,z=z), dim=1)[:,tasks_till_now],torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 div_loss += diversity_loss(eps,z)
             
-            total_loss = xent_loss - ((i+1)%5==0)*kl_loss + div_loss 
+            total_loss = xent_loss - kl_loss + div_loss 
             
             total_loss.backward()
             optimizer_new.step()
@@ -281,7 +281,7 @@ class Trainer:
                 xent_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels)).sum()
                 kl_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 
-                total_loss = xent_loss - ((i+1)%5==0)*kl_loss + div_loss 
+                total_loss = xent_loss - kl_loss + div_loss 
                 
                 total_loss.backward()
                 optimizer_old.step()
@@ -479,7 +479,8 @@ class Trainer:
         self.label_counts_server_last_task = {}
         for j in range(self.num_classes):
             self.label_counts_server_last_task[j] = 0
-   
+
+        avg_acc = 0
         # for each task
         for i in range(self.max_task): ## SHAUN : See learner config
             random.seed(self.seed*100 + i)
@@ -557,10 +558,17 @@ class Trainer:
                     model_save_dir = self.model_top_dir + f'_client_{idx + self.n_clients*r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
                     if not os.path.exists(model_save_dir): os.makedirs(model_save_dir) #uncomment for learners
                     
-                    avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
+                    server_model_save_dir = self.model_top_dir + f'_server_{r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
+                    prev_server_model_save_dir = self.model_top_dir + f'_server_{self.n_rounds-1}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i-1]+'/'
+                    try:
+                        self.server.load_model(server_model_save_dir)
+                        if i > 0:
+                            self.prev_server.load_model(prev_server_model_save_dir)
+                    except:
+                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
 
                     # save model
-                    self.learners[idx].save_model(model_save_dir) 
+                    #self.learners[idx].save_model(model_save_dir) 
 
                     # T-sne plots
                     if self.vis_flag:
@@ -597,9 +605,6 @@ class Trainer:
                     for idx1 in range(self.n_clients):
                         self.label_counts_round[row] += self.label_counts[idx1][row]
 
-                server_model_save_dir = self.model_top_dir + f'_server_{r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
-                prev_server_model_save_dir = self.model_top_dir + f'_server_{self.n_rounds-1}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i-1]+'/'
-                
                 try:
                     self.server.load_model(server_model_save_dir)
                     if i > 0:
@@ -618,13 +623,13 @@ class Trainer:
                         self.knowledge_distillation()
                     
                 if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir)
-                self.server.save_model(server_model_save_dir) 
+                self.server.save_model(server_model_save_dir)
 
                 for row in range(self.num_classes):
                     for idx1 in range(self.n_clients):
                         self.label_counts_server[row] += self.label_counts[idx1][row]
 
-                server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True)) 
+                server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True))
                 server_temp_table['plastic'].append(self.server_task_eval(i, all_tasks=False))
                 if i >0:
                     print('Last acc:')
@@ -640,10 +645,14 @@ class Trainer:
                 self.label_counts_server_last_task[cls] = self.label_counts_server[cls]
 
             self.server.last_valid_out_dim = self.server.valid_out_dim
+            avg_acc += server_temp_table['acc'][-1]
             # save temporary results
             for mkey in self.metric_keys:
                 save_file = server_temp_dir + mkey + '.csv'
-                np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f')  
+                np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f')
+        server_temp_table['acc'].append(f'Average Accuracy : {avg_acc/(self.max_task)}')
+        np.savetxt(server_temp_dir + 'acc.csv', np.asarray(server_temp_table['acc']), delimiter=",", fmt='%s')
+        print('Average accuracy :', avg_acc/(self.max_task))
         return avg_metrics 
     
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt, final_acc):

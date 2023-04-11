@@ -5,7 +5,7 @@ DATASET=IMBALANCEINR
 N_CLASS=200
 
 # save directory
-DATE=hepco_v3.0_iid_cutoff
+DATE=hepco_v4.0_iid_cutoff_joint
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
