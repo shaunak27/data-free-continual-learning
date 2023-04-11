@@ -59,11 +59,11 @@ class DiversityLoss(nn.Module):
 
 class Generator(nn.Module):
     #mlp with 2 hidden layers
-    def __init__(self):
+    def __init__(self,noise_dim=32):
         super(Generator, self).__init__()
-        self.embedding = nn.Embedding(200, 32) #(num_classes, embedding_dim)
+        self.embedding = nn.Embedding(200, noise_dim) #(num_classes, embedding_dim)
         self.net = nn.Sequential(
-            nn.Linear(64, 256),
+            nn.Linear(2*noise_dim, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Linear(256, 1024),

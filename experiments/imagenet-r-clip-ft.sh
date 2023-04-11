@@ -1,15 +1,14 @@
 # bash experiments/imagenet-r.sh
-# experiment settings
+# experiment settings\\
+
+## ABLATING GENERATOR !!!
 SPLIT=10
 DATASET=IMBALANCEINR
 N_CLASS=200
 
-# save directory
-DATE=fedavg_v2.1_iid_cutoff
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 
 # hard coded inputs
-GPUID='1'
+GPUID='0 1'
 CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
 REPEAT=1
 MEMORY=0
@@ -24,7 +23,6 @@ then
     MAXTASK=3
     SCHEDULE="2"
 fi
-mkdir -p $OUTDIR
 
 
 # # atteprompt
@@ -66,9 +64,65 @@ MU=0
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
+
+DATE=hepco_v4.0_iid_cutoff_gen_epoch_50
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 50 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+DATE=hepco_v4.0_iid_cutoff_gen_epoch_200
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 200 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+DATE=hepco_v4.0_iid_cutoff_gen_epoch_300
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 300 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+
+DATE=hepco_v4.0_iid_cutoff_gen_lr_0.001
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 1e-3 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+DATE=hepco_v4.0_iid_cutoff_gen_lr_0.0005
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 5e-4 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+DATE=hepco_v4.0_iid_cutoff_noisedim_64
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --noise_dimension 64 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+
+DATE=hepco_v4.0_iid_cutoff_noisedim_128
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --noise_dimension 128 --wandb_name $DATE \
     --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 # l2p

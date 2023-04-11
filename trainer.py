@@ -37,14 +37,22 @@ class Trainer:
         self.hepco = args.hepco
         self.imbalance = args.imbalance
         self.percent = args.percent
+        self.lambda_KL = args.lambda_KL
         # model load directory
         self.model_top_dir = args.log_dir
         self.cutoff = args.cutoff
         self.ignore_past_server = args.ignore_past_server
+        self.generator_epochs = args.generator_epochs
+        self.noise_dimension = args.noise_dimension
+        self.generator_lr = args.generator_lr
+        self.kd_epochs = args.kd_epochs
+        self.kd_lr = args.kd_lr
+        self.replay_ratio = args.replay_ratio
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        wandb.init(project="hepcov3.0",name=args.wandb_name)
+        wandb.init(project="hepcov4.0",name=args.wandb_name)
+
         if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
             num_classes = 10
@@ -211,23 +219,23 @@ class Trainer:
         self.prev_server = None
 
     def train_generator(self,round=0,task=0):
-        n_epochs_new = 100
+        n_epochs_new = self.generator_epochs #100
         batch_size = 32
         cross_entropy = torch.nn.CrossEntropyLoss(reduction='none')
         kl_div = torch.nn.KLDivLoss(reduction='none')
         mse = torch.nn.MSELoss(reduction='none')
         diversity_loss = DiversityLoss(metric='l2')
 
-        self.generator_new = Generator().cuda()
+        self.generator_new = Generator(self.noise_dimension).cuda()
         self.generator_new = torch.nn.DataParallel(self.generator_new, device_ids=[0,1], output_device=0)
 
-        self.generator_old = Generator().cuda()
+        self.generator_old = Generator(self.noise_dimension).cuda()
         self.generator_old = torch.nn.DataParallel(self.generator_old, device_ids=[0,1], output_device=0)
 
-        optimizer_new = torch.optim.Adam(self.generator_new.parameters(), lr=1e-4,betas=(0.9, 0.999),
+        optimizer_new = torch.optim.Adam(self.generator_new.parameters(), lr=self.generator_lr,betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
 
-        optimizer_old = torch.optim.Adam(self.generator_old.parameters(), lr=1e-4,betas=(0.9, 0.999),
+        optimizer_old = torch.optim.Adam(self.generator_old.parameters(), lr=self.generator_lr,betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
 
         self.generator_new.train()
@@ -244,7 +252,7 @@ class Trainer:
         for i in pbar:
             #ENSURE RANDOMNESS !!!
             labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
-            eps = torch.randn(labels.shape[0], 32).cuda()
+            eps = torch.randn(labels.shape[0], self.noise_dimension).cuda()
             z = self.generator_new(labels,eps)
             xent_loss = 0
             kl_loss = 0
@@ -258,7 +266,7 @@ class Trainer:
                     kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda() * mse(torch.softmax(self.server.model.forward(x=None,z=z), dim=1)[:,tasks_till_now],torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 div_loss += diversity_loss(eps,z)
             
-            total_loss = xent_loss - kl_loss + div_loss 
+            total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss 
             
             total_loss.backward()
             optimizer_new.step()
@@ -274,14 +282,14 @@ class Trainer:
             for i in pbar:
                 #ENSURE RANDOMNESS !!!
                 labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
-                eps = torch.randn(labels.shape[0], 32).cuda()
+                eps = torch.randn(labels.shape[0], self.noise_dimension).cuda()
                 z = self.generator_old(labels,eps)
                 
                 div_loss = diversity_loss(eps,z)
                 xent_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels)).sum()
                 kl_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 
-                total_loss = xent_loss - kl_loss + div_loss 
+                total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss 
                 
                 total_loss.backward()
                 optimizer_old.step()
@@ -293,29 +301,16 @@ class Trainer:
             self.prev_server.model.train()
         for learner in self.learners:
             learner.model.train()
-        
-        #save generator
-
-        # model_state = self.generator.state_dict()
-        # for key in model_state.keys():  # Always save it to cpu
-        #     model_state[key] = model_state[key].cpu()
-        # model_save_dir = self.model_top_dir + '/generator/'
-        # if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
-        # print('=> Saving class model to:', os.path.join(model_save_dir,f'generator_{task}_{round}.pth'))
-        # torch.save(model_state, os.path.join(model_save_dir,f'generator_{task}_{round}.pth'))
-        # print('=> Save Done')
-        #Now that the generator is trained, we can generate the latents and corresponding prompts and perform KD
-        #Can have a similar class count weighted loss for prompt KD and classifier KD
 
     def knowledge_distillation(self):
-        num_epochs = 200
+        num_epochs = self.kd_epochs #200
         batch_size = 32
-        old_batch_size = 4
+        old_batch_size = int(batch_size*self.replay_ratio) #4
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
-        optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=1e-4,betas=(0.9, 0.999),
+        optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=self.kd_lr, betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
-        optimizer2 = torch.optim.Adam(self.server.model.module.last.parameters(), lr=1e-4,betas=(0.9, 0.999),
+        optimizer2 = torch.optim.Adam(self.server.model.module.last.parameters(), lr=self.kd_lr, betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
         
         self.generator_new.eval()
@@ -334,7 +329,7 @@ class Trainer:
             mse_loss = 0
             with torch.no_grad():
                 labels_new = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
-                eps_new = torch.randn(labels_new.shape[0], 32).cuda() 
+                eps_new = torch.randn(labels_new.shape[0], self.noise_dimension).cuda() 
                 z_new = self.generator_new(labels_new,eps_new)
             for j in range(self.n_clients):
                 for layer in self.server.model.module.prompt.e_layers:
@@ -342,7 +337,7 @@ class Trainer:
             
             if self.prev_server is not None:
                 labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
-                eps_old = torch.randn(labels_old.shape[0], 32).cuda()
+                eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                 z_old = self.generator_old(labels_old,eps_old)
                 for layer in self.server.model.module.prompt.e_layers:
                         mse_loss += ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels_old] * mse(self.server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True), self.prev_server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True))).sum()
@@ -355,11 +350,11 @@ class Trainer:
         for it in pb2: 
             with torch.no_grad():
                 labels_new = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
-                eps_new = torch.randn(labels_new.shape[0], 32).cuda() 
+                eps_new = torch.randn(labels_new.shape[0], self.noise_dimension).cuda() 
                 z_new = self.generator_new(labels_new,eps_new)
                 if self.prev_server is not None:
                     labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
-                    eps_old = torch.randn(labels_old.shape[0], 32).cuda()
+                    eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                     z_old = self.generator_old(labels_old,eps_old)
                     z_combined = torch.cat((z_new,z_old),dim=0)
                     labels_combined = torch.cat((labels_new,labels_old),dim=0)

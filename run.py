@@ -59,7 +59,14 @@ def create_args():
     parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
     parser.add_argument('--wandb_name', type=str, default="test", help="wandb name")
     parser.add_argument('--ignore_past_server', default=False, action='store_true', help='ignore past server')
-
+    #add argument for lambda_KL which is float and default value 1
+    parser.add_argument('--lambda_KL', type=float, default=1, help="lambda_KL")
+    parser.add_argument('--generator_epochs', type=int, default=100, help="generator_epochs")
+    parser.add_argument('--generator_lr', type=float, default=1e-4, help="generator_lr")
+    parser.add_argument('--noise_dimension', type=int, default=32, help="noise_dimension")
+    parser.add_argument('--kd_epochs', type=int, default=200, help="kd_epochs")
+    parser.add_argument('--kd_lr', type=float, default=1e-4, help="kd_lr")
+    parser.add_argument('--replay_ratio', type=float, default=0.125, help="replay_ratio")
     return parser
 
 def get_args(argv):

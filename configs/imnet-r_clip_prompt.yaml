@@ -2,7 +2,7 @@ dataset: IMBALANCEINR
 first_split_size: 20
 other_split_size: 20
 schedule:
-- 10
+- 5
 schedule_type: cosine
 batch_size: 64
 optimizer: Adam
@@ -12,7 +12,7 @@ weight_decay: 0
 model_type: zoo_old
 model_name: vit_pt_imnet
 vis_flag: False
-max_task: 10
+max_task: 5
 dataroot: data
 workers: 8
 validation: False
