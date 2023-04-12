@@ -411,15 +411,16 @@ class IMBALANCEINR(iIMAGENET_R):
         self.data = [self.data[i] for i in index_sample]
         self.targets = [self.targets[i] for i in index_sample]
 
-    def load_dataset(self, t, train=True,label_counts=None,seed=-1,cutoff=False):
+    def load_dataset(self, t, train=True, label_counts=None, seed=-1, cutoff=False, cutoff_ratio = 0):
         
         if train:
             self.data, self.targets = self.archive[t]
             self.cls_num = len(np.unique(self.targets))
             if self.client_idx >= 0 and self.train:
-                img_num_list = (np.array(self.get_img_num_per_cls(self.cls_num, self.imb_type, self.imb_factor)) * self.percent).astype(int)
+                img_num_list = (np.array(self.get_img_num_per_cls(self.cls_num, self.imb_type, self.imb_factor, cutoff_ratio)) * self.percent).astype(int)
                 if cutoff :
-                    img_num_list[-8:] = [0]*8
+                    cutoff_index = int(cutoff_ratio * self.cls_num)
+                    img_num_list = np.append(img_num_list,np.array([0]*cutoff_index))
                 print(img_num_list)
                 classes = self.gen_imbalanced_data(img_num_list,seed=seed) 
                 for c,i in zip(classes,img_num_list):
@@ -434,12 +435,13 @@ class IMBALANCEINR(iIMAGENET_R):
 
         #print(np.unique(self.targets))
 
-    def get_img_num_per_cls(self, cls_num, imb_type, imb_factor):
+    def get_img_num_per_cls(self, cls_num, imb_type, imb_factor,cutoff_ratio=0):
         img_max = len(self.data) / cls_num
         img_num_per_cls = []
+        new_cls_num = cls_num - int(cls_num * cutoff_ratio)
         if imb_type == 'exp':
-            for cls_idx in range(cls_num):
-                num = img_max * (imb_factor**(cls_idx / (cls_num - 1.0)))
+            for cls_idx in range(new_cls_num):
+                num = img_max * (imb_factor**(cls_idx / (new_cls_num - 1.0)))
                 img_num_per_cls.append(int(num))
         elif imb_type == 'step':
             for cls_idx in range(cls_num // 2):

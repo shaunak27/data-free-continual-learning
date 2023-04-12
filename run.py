@@ -67,6 +67,7 @@ def create_args():
     parser.add_argument('--kd_epochs', type=int, default=200, help="kd_epochs")
     parser.add_argument('--kd_lr', type=float, default=1e-4, help="kd_lr")
     parser.add_argument('--replay_ratio', type=float, default=0.125, help="replay_ratio")
+    parser.add_argument('--cutoff_ratio', type=float, default=0.4, help="cutoff_ratio")
     return parser
 
 def get_args(argv):

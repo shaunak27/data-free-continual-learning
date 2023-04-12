@@ -48,6 +48,7 @@ class Trainer:
         self.kd_epochs = args.kd_epochs
         self.kd_lr = args.kd_lr
         self.replay_ratio = args.replay_ratio
+        self.cutoff_ratio = args.cutoff_ratio
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
@@ -523,7 +524,7 @@ class Trainer:
                     print('======================',f'Client {idx+1 + self.n_clients*r}, Task {train_name}' , '=======================')
 
                     # load dataset for task
-                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients,cutoff=self.cutoff) ##SHAUN : See dataloader.py
+                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients,cutoff=self.cutoff,cutoff_ratio = self.cutoff_ratio) ##SHAUN : See dataloader.py
                     # load dataset with memory
                     self.train_datasets[idx].append_coreset(only=False)
 
