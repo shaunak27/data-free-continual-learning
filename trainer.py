@@ -62,6 +62,10 @@ class Trainer:
             Dataset = dataloaders.iCIFAR100
             num_classes = 100
             self.dataset_size = [32,32,3]
+        elif args.dataset == 'IMBALANCECIFAR':
+            Dataset = dataloaders.IMBALANCECIFAR
+            num_classes = 100
+            self.dataset_size = [32,32,3]
         elif args.dataset == 'ImageNet32':
             Dataset = dataloaders.iIMAGENETs
             num_classes = 100
