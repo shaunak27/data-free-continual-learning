@@ -360,10 +360,12 @@ class Trainer:
         for it in pb2: 
             with torch.no_grad():
                 labels_new = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
+                labels_translated_new = torch.tensor([class_mapping[j.item()] for j in labels_new]).cuda()
                 eps_new = torch.randn(labels_new.shape[0], self.noise_dimension).cuda() 
                 z_new = self.generator_new(labels_new,eps_new)
                 if self.prev_server is not None:
                     labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
+                    labels_translated_old = torch.tensor([class_mapping[j.item()] for j in labels_old]).cuda()
                     eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                     z_old = self.generator_old(labels_old,eps_old)
                     z_combined = torch.cat((z_new,z_old),dim=0)
