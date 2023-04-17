@@ -1,7 +1,7 @@
 # bash experiments/imagenet-r.sh
 # experiment settings\\
 
-## ABLATING KD !!!
+
 SPLIT=10
 DATASET=IMBALANCEINR
 N_CLASS=200
@@ -65,97 +65,16 @@ MU=0
 
 # l2p
 
-DATE=hepco_v4.0_iid_cutoff_kd_replay_1
+
+
+DATE=hepco_v5.0_INR_iid_cutoff_cutratio_0.4_seed_3
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
-
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --replay_ratio 1 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_replay_0.5
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --replay_ratio 0.5 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_replay_0.75
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --replay_ratio 0.75 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_replay_0.25
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --replay_ratio 0.25 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_epoch_50
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_epochs 50 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_epoch_100
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_epochs 100 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_epoch_300
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_epochs 300 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_epoch_400
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_epochs 400 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_lr_0.001
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_lr 1e-3 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_kd_lr_0.005
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --kd_lr 5e-3 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff --lambda_KL 1 --cutoff_ratio 0.4 --replay_ratio 0.5 \
+    --noise_dimension 64 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 3
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

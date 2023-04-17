@@ -52,7 +52,7 @@ class Trainer:
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        wandb.init(project="hepcov4.0",name=args.wandb_name)
+        wandb.init(project="hepcov5.0",name=args.wandb_name)
 
         if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
@@ -253,10 +253,12 @@ class Trainer:
 
         pbar = tqdm(range(n_epochs_new),total=n_epochs_new)
         tasks_till_now = [j for sub in self.server.tasks_real[:self.current_t_index+1] for j in sub]
-
+        class_mapping = self.server_test_dataset.class_mapping
         for i in pbar:
             #ENSURE RANDOMNESS !!!
             labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
+            #labels should be passed through class mappings to get the values in the class_mapping dictionary
+            labels_translated = torch.tensor([class_mapping[j.item()] for j in labels]).cuda()
             eps = torch.randn(labels.shape[0], self.noise_dimension).cuda()
             z = self.generator_new(labels,eps)
             xent_loss = 0
@@ -264,7 +266,7 @@ class Trainer:
             div_loss = 0
             for j in range(self.n_clients):
                 ## ADD PROVISION IN CASE label counts sum is zero (mainly for prev tasks)
-                xent_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels] * cross_entropy(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], labels)).sum()
+                xent_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels] * cross_entropy(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
                 if self.kl:
                     kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 else :
@@ -287,11 +289,12 @@ class Trainer:
             for i in pbar:
                 #ENSURE RANDOMNESS !!!
                 labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
+                labels_translated = torch.tensor([class_mapping[j.item()] for j in labels]).cuda()
                 eps = torch.randn(labels.shape[0], self.noise_dimension).cuda()
                 z = self.generator_old(labels,eps)
                 
                 div_loss = diversity_loss(eps,z)
-                xent_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels)).sum()
+                xent_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
                 kl_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 
                 total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss 
@@ -329,11 +332,12 @@ class Trainer:
         pb1 = tqdm(range(num_epochs),total=num_epochs)
         pb2 = tqdm(range(num_epochs),total=num_epochs)
         tasks_till_now = [j for sub in self.server.tasks_real[:self.current_t_index+1] for j in sub]
-        
+        class_mapping = self.server_test_dataset.class_mapping
         for it in pb1:
             mse_loss = 0
             with torch.no_grad():
                 labels_new = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
+                labels_translated_new = torch.tensor([class_mapping[j.item()] for j in labels_new]).cuda()
                 eps_new = torch.randn(labels_new.shape[0], self.noise_dimension).cuda() 
                 z_new = self.generator_new(labels_new,eps_new)
             for j in range(self.n_clients):
@@ -342,6 +346,7 @@ class Trainer:
             
             if self.prev_server is not None:
                 labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
+                labels_translated_old = torch.tensor([class_mapping[j.item()] for j in labels_old]).cuda()
                 eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                 z_old = self.generator_old(labels_old,eps_old)
                 for layer in self.server.model.module.prompt.e_layers:
@@ -362,10 +367,10 @@ class Trainer:
                     eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                     z_old = self.generator_old(labels_old,eps_old)
                     z_combined = torch.cat((z_new,z_old),dim=0)
-                    labels_combined = torch.cat((labels_new,labels_old),dim=0)
+                    labels_combined = torch.cat((labels_translated_new,labels_translated_old),dim=0)
                 else:
                     z_combined = z_new
-                    labels_combined = labels_new         
+                    labels_combined = labels_translated_new         
             xent_loss = cross_entropy(self.server.model(x=None,z=z_combined)[:,tasks_till_now], labels_combined)            
             optimizer2.zero_grad()
             xent_loss.backward()
@@ -528,7 +533,7 @@ class Trainer:
                     print('======================',f'Client {idx+1 + self.n_clients*r}, Task {train_name}' , '=======================')
 
                     # load dataset for task
-                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients,cutoff=self.cutoff,cutoff_ratio = self.cutoff_ratio) ##SHAUN : See dataloader.py
+                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients + 2000*self.seed,cutoff=self.cutoff,cutoff_ratio = self.cutoff_ratio) ##SHAUN : See dataloader.py
                     # load dataset with memory
                     self.train_datasets[idx].append_coreset(only=False)
 
@@ -619,8 +624,11 @@ class Trainer:
                         #     server_temp_table['predislastacc'].append(self.server_task_eval(i-1, all_tasks=True))
                         if self.ignore_past_server:
                             self.prev_server = None
+                        #record time for the two functions below
+                        t = time.time()
                         self.train_generator(round=r,task=i)
                         self.knowledge_distillation()
+                        print('Time for distillation:',time.time()-t)
                     
                 if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir)
                 self.server.save_model(server_model_save_dir)

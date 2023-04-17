@@ -55,7 +55,7 @@ def create_args():
     parser.add_argument('--kl', default=False, action='store_true', help='use kl')
     parser.add_argument('--hepco', default=False, action='store_true', help='use hepco')
     parser.add_argument('--imbalance', type=float, default=0.01, help="imbalance")
-    parser.add_argument('--percent', type=float, default=0.3, help="percent")
+    parser.add_argument('--percent', type=float, default=0.1, help="percent")
     parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
     parser.add_argument('--wandb_name', type=str, default="test", help="wandb name")
     parser.add_argument('--ignore_past_server', default=False, action='store_true', help='ignore past server')
@@ -68,6 +68,8 @@ def create_args():
     parser.add_argument('--kd_lr', type=float, default=1e-4, help="kd_lr")
     parser.add_argument('--replay_ratio', type=float, default=0.125, help="replay_ratio")
     parser.add_argument('--cutoff_ratio', type=float, default=0.4, help="cutoff_ratio")
+    #add argument for seed
+    parser.add_argument('--seed', type=int, default=0, help="seed")
     return parser
 
 def get_args(argv):
@@ -149,7 +151,7 @@ if __name__ == '__main__':
         print('************************************')
 
         # set random seeds
-        seed = 0
+        seed = args.seed
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)

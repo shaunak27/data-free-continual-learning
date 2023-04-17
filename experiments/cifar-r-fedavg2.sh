@@ -1,15 +1,15 @@
 # bash experiments/imagenet-r.sh
 # experiment settings\\
 
-## ABLATING KD !!!
+
 SPLIT=10
-DATASET=IMBALANCEINR
-N_CLASS=200
+DATASET=IMBALANCECIFAR
+N_CLASS=100
 
 
 # hard coded inputs
 GPUID='0 1'
-CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
+CONFIG_CLIP_P=configs/cifar100_vit_prompt.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
@@ -65,23 +65,25 @@ MU=0
 
 # l2p
 
-DATE=hepco_v4.0_iid_cutoff_gen_lr_5e_5
+
+
+DATE=fedavg_v5.0_CIFAR_iid_cutoff_cutratio_0.4_seed_2
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
-
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 0.00005 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+    --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff \
+    --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 2
 
-DATE=hepco_v4.0_iid_cutoff_gen_lr_1e_5
+DATE=fedavg_v5.0_CIFAR_iid_cutoff_cutratio_0.4_seed_3
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
-
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 0.00001 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+    --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff \
+    --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 3
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
