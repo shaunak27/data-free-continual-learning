@@ -35,7 +35,7 @@ class LWF(NormalNN):
         self.ce_loss = nn.BCELoss()
         self.init_task_param_reg = self.eps > 0
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, loss_type = None, server_model=None):
         
         # L2 from the start
         if self.init_task_param_reg: self.accumulate_block_memory(train_loader)
@@ -101,7 +101,7 @@ class LWF(NormalNN):
                         y_hat = None
 
                     # model update - training data
-                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat)
+                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat,loss_type = loss_type, server_model=server_model)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc()) 

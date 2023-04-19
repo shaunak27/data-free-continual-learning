@@ -38,6 +38,7 @@ class Trainer:
         self.imbalance = args.imbalance
         self.percent = args.percent
         self.lambda_KL = args.lambda_KL
+        self.loss_type = args.loss_type
         # model load directory
         self.model_top_dir = args.log_dir
         self.cutoff = args.cutoff
@@ -388,7 +389,7 @@ class Trainer:
     def communicate(self):
         with torch.no_grad():
             for key in self.server.model.state_dict().keys():
-                if 'prompt' in key or 'last' in key: #retract : 'last in key
+                if 'prompt' in key or 'last' in key: 
                     temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
                     for i in range(self.n_clients):
                         temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
@@ -572,7 +573,7 @@ class Trainer:
                         if i > 0:
                             self.prev_server.load_model(prev_server_model_save_dir)
                     except:
-                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
+                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader,loss_type=self.loss_type,server_model = self.server.model) ## SHAUN : Jump to LWF
 
                     # save model
                     #self.learners[idx].save_model(model_save_dir) 

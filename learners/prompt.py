@@ -31,7 +31,7 @@ class DualPrompt(LWF):
         super(DualPrompt, self).__init__(learner_config)  ##SHAUN : Jump to LWF init
 
     # update model - add dual prompt loss   
-    def update_model(self, inputs, targets, target_KD = None):
+    def update_model(self, inputs, targets, target_KD = None, loss_type = None, server_model = None):
 
         # logits
         logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
@@ -46,7 +46,11 @@ class DualPrompt(LWF):
         logits[:,:self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
-
+        penalty = torch.tensor(0., requires_grad=True).cuda()
+        if loss_type == "fedprox":
+                for w, w_t in zip(server_model.parameters(), self.model.parameters()):
+                    penalty += torch.pow(torch.norm(w.detach() - w_t), 2)
+                total_loss += 0.01 / 2. * penalty
         # ce loss
         total_loss = total_loss + self.mu * prompt_loss.sum()
         # step
