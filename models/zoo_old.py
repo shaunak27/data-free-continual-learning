@@ -59,9 +59,9 @@ class DiversityLoss(nn.Module):
 
 class Generator(nn.Module):
     #mlp with 2 hidden layers
-    def __init__(self,noise_dim=32):
+    def __init__(self,noise_dim=32,num_classes=200):
         super(Generator, self).__init__()
-        self.embedding = nn.Embedding(200, noise_dim) #(num_classes, embedding_dim)
+        self.embedding = nn.Embedding(num_classes, noise_dim) #(num_classes, embedding_dim)
         self.net = nn.Sequential(
             nn.Linear(2*noise_dim, 256),
             nn.BatchNorm1d(256),
@@ -77,13 +77,15 @@ class Generator(nn.Module):
         return self.net(z)
 
 class DualPrompt(nn.Module):
-    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768,prompt_type='l2p'):
         super().__init__()
         self.task_count_f = 0
         self.emb_d = emb_d
         self.key_d = key_dim
         self.expand_and_freeze = False
         self.n_tasks = n_tasks
+        self.prompt_type = prompt_type
+        print('prompt_type : ',prompt_type)
         self._init_smart(emb_d, prompt_param)
 
         # init frequency table
@@ -110,7 +112,7 @@ class DualPrompt(nn.Module):
 
         # prompt locations
         self.g_layers = [0,1]
-        self.e_layers = [3,4,5]
+        self.e_layers = [2,3,4]
 
         # prompt pool size
         self.g_p_length = prompt_param[2]
@@ -175,17 +177,18 @@ class DualPrompt(nn.Module):
                     if self.task_count_f > 0:
                         f_ = getattr(self, f'freq_past_{l}')
                         f_tensor = f_.expand(B,-1)
-                        # cos_sim_scaled = 1.0 - (f_tensor * (1.0 - cos_sim))
                         cos_sim_scaled = cos_sim
                     else:
                         cos_sim_scaled = cos_sim
                     top_k = torch.topk(cos_sim_scaled, self.top_k, dim=1)
                     k_idx = top_k.indices
-                    # loss = 1.0 - cos_sim[:,k_idx].mean()  # the cosine similarity is always le 1 #TODO : Uncomment
-                    # P_ = p[k_idx][:,0] ## SHAUN : This only chooses the top-1 prompt and not the top-k !!
-                    
-                    cos_sim_scaled = cos_sim_scaled.unsqueeze(2).unsqueeze(3) #Weighted L2P #TODO : Uncomment
-                    P_ = torch.sum(torch.mul(cos_sim_scaled,p),dim=1)
+                    loss = 0
+                    if self.prompt_type == 'l2p':
+                        loss = (1.0 - cos_sim[:,k_idx]).sum()
+                        P_ = p[k_idx][:,0] #TODO replace with p[k_idx] to choose top k
+                    elif self.prompt_type =='weighted_l2p' :
+                        cos_sim_scaled = cos_sim_scaled.unsqueeze(2).unsqueeze(3) 
+                        P_ = torch.sum(torch.mul(cos_sim_scaled,p),dim=1)
 
                     # update frequency
                     f_ = getattr(self, f'freq_curr_{l}')
@@ -193,10 +196,12 @@ class DualPrompt(nn.Module):
                     f_ += f_to_add
             else:
                 top_k = torch.topk(cos_sim, self.top_k, dim=1)
-                # k_idx = top_k.indices
-                # P_ = p[k_idx][:,0]
-                cos_sim = cos_sim.unsqueeze(2).unsqueeze(3) #Weighted L2P
-                P_ = torch.sum(torch.mul(cos_sim,p),dim=1)
+                if self.prompt_type == 'l2p':
+                    k_idx = top_k.indices
+                    P_ = p[k_idx][:,0] #TODO replace with p[k_idx] to choose top k
+                elif self.prompt_type =='weighted_l2p' :
+                    cos_sim = cos_sim.unsqueeze(2).unsqueeze(3) #Weighted L2P
+                    P_ = torch.sum(torch.mul(cos_sim,p),dim=1)
                 
             # select prompts
             i = int(self.e_p_length/2)
@@ -233,13 +238,13 @@ class DualPrompt(nn.Module):
                 return P_
         # return
         if train:
-            return p_return, 0, x_block #p_return, loss, x_block TODO : uncomment
+            return p_return, loss, x_block #p_return, loss, x_block TODO : uncomment
         else:
             return p_return, 0, x_block
 
 class L2P(DualPrompt):
-    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768):
-        super().__init__(emb_d, n_tasks, prompt_param, key_dim)
+    def __init__(self, emb_d, n_tasks, prompt_param, key_dim=768,prompt_type='l2p'):
+        super().__init__(emb_d, n_tasks, prompt_param, key_dim,prompt_type)
 
     def _init_smart(self, emb_d, prompt_param):
         self.top_k = 5
@@ -248,7 +253,7 @@ class L2P(DualPrompt):
         # prompt locations
         self.g_layers = []
         if prompt_param[2] > 0:
-            self.e_layers = [0,1,3,4,5]
+            self.e_layers = [0,1,2,3,4]
         else:
             self.e_layers = [0]
 
@@ -266,7 +271,7 @@ class L2P(DualPrompt):
 
 
 class ResNetZoo(nn.Module):
-    def __init__(self, num_classes=10, pt=False, mode=1, prompt_flag=False, prompt_param=None):
+    def __init__(self, num_classes=10, pt=False, mode=1, prompt_flag=False, prompt_param=None,prompt_type='l2p'):
         super(ResNetZoo, self).__init__()
 
         # get last layer
@@ -277,20 +282,32 @@ class ResNetZoo(nn.Module):
         # get feature encoder
         if mode == 0:
             if pt:
-                zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12, 
-                                           num_heads=12, use_grad_checkpointing=False, ckpt_layer=0,
-                                           drop_path_rate=0
-                                          )   
-                checkpoint = torch.hub.load_state_dict_from_url(
-                    url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
-                    map_location="cpu", check_hash=True)
-                state_dict = checkpoint["model"]     
-                msg = zoo_model.load_state_dict(state_dict,strict=False)
+                # zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12, 
+                #                            num_heads=12, use_grad_checkpointing=False, ckpt_layer=0,
+                #                            drop_path_rate=0
+                #                           )   
+                # checkpoint = torch.hub.load_state_dict_from_url(
+                #     url="https://dl.fbaipublicfiles.com/deit/deit_base_patch16_224-b5f2ef4d.pth",
+                #     map_location="cpu", check_hash=True)
+                # state_dict = checkpoint["model"]     
+                # msg = zoo_model.load_state_dict(state_dict,strict=False)
+
+                zoo_model = VisionTransformer(img_size=224, patch_size=16, embed_dim=768, depth=12,
+                                            num_heads=12, ckpt_layer=0,
+                                            drop_path_rate=0
+                                            )
+                from timm.models import vit_base_patch16_224
+                load_dict = vit_base_patch16_224(pretrained=True).state_dict()
+                del load_dict['head.weight']; del load_dict['head.bias']
+                zoo_model.load_state_dict(load_dict)
+
                 self.last = nn.Linear(768, num_classes)
+            
+                
 
         # create prompting module
         if self.prompt_flag == 'l2p':
-            self.prompt = L2P(768, prompt_param[0], prompt_param[1]) ##SHAUN : Jump to L2P. See trainer.py last few lines of init
+            self.prompt = L2P(768, prompt_param[0], prompt_param[1],prompt_type=prompt_type) ##SHAUN : Jump to L2P. See trainer.py last few lines of init
             
 
         elif self.prompt_flag == 'dual':
@@ -325,5 +342,5 @@ class ResNetZoo(nn.Module):
         else:
             return out
             
-def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
-    return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param) ##SHAUN : Jump to ResnetZoo init
+def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None,prompt_type='l2p'):
+    return ResNetZoo(num_classes=out_dim, pt=True, mode=0, prompt_flag=prompt_flag, prompt_param=prompt_param, prompt_type = prompt_type) ##SHAUN : Jump to ResnetZoo init

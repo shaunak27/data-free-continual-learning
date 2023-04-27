@@ -35,14 +35,14 @@ class LWF(NormalNN):
         self.ce_loss = nn.BCELoss()
         self.init_task_param_reg = self.eps > 0
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None, loss_type = None, server_model=None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None,prev_server=None,server=None,loss_type = None):
         
         # L2 from the start
         if self.init_task_param_reg: self.accumulate_block_memory(train_loader)
         
         # init teacher
-        if self.previous_teacher is None:
-            teacher = Teacher(solver=self.model)
+        if self.replay:
+            teacher = Teacher(solver=prev_server.model)
             self.previous_teacher = copy.deepcopy(teacher)
 
         # try to load model
@@ -87,7 +87,7 @@ class LWF(NormalNN):
 
                     # verify in train mode
                     self.model.train()
-                    if y.size(0) < 2: continue
+                    if y.size(0) < len(self.config['gpuid']): continue
                     # send data to gpu
                     if self.gpu:
                         x = x.cuda()
@@ -101,7 +101,7 @@ class LWF(NormalNN):
                         y_hat = None
 
                     # model update - training data
-                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat,loss_type = loss_type, server_model=server_model)
+                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat,loss_type = loss_type, server_model = server.model if server is not None else None)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc()) 
@@ -129,7 +129,7 @@ class LWF(NormalNN):
 
         self.model.eval()
 
-        self.past_tasks.append(np.arange(self.last_valid_out_dim,self.valid_out_dim))
+        
         self.last_last_valid_out_dim = self.last_valid_out_dim
         self.last_valid_out_dim = self.valid_out_dim
         self.first_task = False
@@ -139,24 +139,22 @@ class LWF(NormalNN):
         if self.memory_size > 0:
             train_dataset.update_coreset(self.memory_size, np.arange(self.last_valid_out_dim))
 
-        # for eval
-        if self.previous_teacher is not None:
-            self.previous_previous_teacher = self.previous_teacher
+        
 
         # new teacher
-        teacher = Teacher(solver=self.model)
-        self.previous_teacher = copy.deepcopy(teacher)
-        self.replay = True
-        if len(self.config['gpuid']) > 1:
-            try:
-                self.previous_linear = copy.deepcopy(self.model.module.last)
-            except:
-                self.previous_linear = copy.deepcopy(self.model.module.last)
-        else:
-            try:
-                self.previous_linear = copy.deepcopy(self.model.last)
-            except:
-                self.previous_linear = copy.deepcopy(self.model.last)
+        # teacher = Teacher(solver=self.model)
+        # self.previous_teacher = copy.deepcopy(teacher)
+        # self.replay = True
+        # if len(self.config['gpuid']) > 1:
+        #     try:
+        #         self.previous_linear = copy.deepcopy(self.model.module.last)
+        #     except:
+        #         self.previous_linear = copy.deepcopy(self.model.module.last)
+        # else:
+        #     try:
+        #         self.previous_linear = copy.deepcopy(self.model.last)
+        #     except:
+        #         self.previous_linear = copy.deepcopy(self.model.last)
         
         # prepare dataloaders for block replay methods
         self.accumulate_block_memory(train_loader)
@@ -177,6 +175,7 @@ class LWF(NormalNN):
             dw_cls = self.dw_k[targets.long()]
         else:
             dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
+        tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
         logits = self.forward(inputs)
         loss_class = self.criterion(logits, targets.long(), dw_cls)
         total_loss += loss_class
@@ -221,7 +220,7 @@ class LWF_MC(LWF):
         super(LWF_MC, self).__init__(learner_config)
         
 
-    def update_model(self, inputs, targets, target_KD = None):
+    def update_model(self, inputs, targets, target_KD = None,loss_type = None, server_model = None):
 
         # get output
         logits = self.forward(inputs)

@@ -37,6 +37,7 @@ class DualPrompt(LWF):
         logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
         
         tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
+        #print(tasks_till_now,self.last_valid_out_dim)
         logits = logits[:,tasks_till_now]
         # # bce
         # target_mod = get_one_hot(targets-self.last_valid_out_dim, self.valid_out_dim-self.last_valid_out_dim)
@@ -48,9 +49,10 @@ class DualPrompt(LWF):
         total_loss = self.criterion(logits, targets.long(), dw_cls)
         penalty = torch.tensor(0., requires_grad=True).cuda()
         if loss_type == "fedprox":
-                for w, w_t in zip(server_model.parameters(), self.model.parameters()):
-                    penalty += torch.pow(torch.norm(w.detach() - w_t), 2)
-                total_loss += 0.01 / 2. * penalty
+                for (n,w), (n_t,w_t) in zip(server_model.named_parameters(),self.model.named_parameters()):
+                    if 'prompt' in n or 'last' in n:
+                        penalty += torch.pow(torch.norm(w.detach() - w_t), 2)
+                total_loss += (0.1 / 2.) * penalty
         # ce loss
         total_loss = total_loss + self.mu * prompt_loss.sum()
         # step
@@ -212,7 +214,7 @@ class L2P(DualPrompt):
         if 'clip' in cfg['model_name']:
             model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,template_style=cfg['template_style']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
         else:
-            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param)
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim, prompt_flag = 'l2p',prompt_param=self.prompt_param,prompt_type = cfg['prompt_type']) ##SHAUN : Jump to vit_pt_imnet in zoo_old
         return model
 
 

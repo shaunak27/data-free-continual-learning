@@ -1,20 +1,15 @@
 # bash experiments/imagenet-r.sh
-# experiment settings
-SPLIT=10
-DATASET=ImageNet_R
-N_CLASS=200
+# experiment settings\\
 
-# save directory
-DATE=clip_domainnet_l2p_multilayer
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+
+SPLIT=69
+DATASET=IMBALANCEDOMAINNET
+N_CLASS=345
+
 
 # hard coded inputs
-GPUID='0 1'
-CONFIG_VIT=configs/imnet-r_vit.yaml
-CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
-CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
-CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
-CONFIG_CLIP_DOMAINNET=configs/domainnet_clip_prompt.yaml
+GPUID='0 1 2 3'
+CONFIG_CLIP_P=configs/domainnet_clip_prompt.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
@@ -28,7 +23,6 @@ then
     MAXTASK=3
     SCHEDULE="2"
 fi
-mkdir -p $OUTDIR
 
 
 # # atteprompt
@@ -70,10 +64,26 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+
+
+
+# DATE=fedavg_v5.0_DOMAINNET_iid_cutoff_cutratio_0.4_seed_1
+# OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+# mkdir -p $OUTDIR
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name L2P \
-#     --prompt_param 100 20 1 -1 \
-#     --log_dir ${OUTDIR}/vit/l2p_multi-layer
+#     --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 20 --cutoff --cutoff_ratio 0.4 \
+#     --noise_dimension 64 --wandb_name $DATE \
+#     --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 1
+
+DATE=vanilla_domainnet_l2p_centralized_newbackbone
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 1 --n_clients 1 --n_rounds 1 --cutoff_ratio 0 \
+    --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --seed 0 --prompt_type l2p
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
@@ -120,6 +130,5 @@ MU=1
 #     --prompt_param 10 20 6 -1 --freeze_last
 
 # # # clip ZS with prompting
-python -u run.py --config $CONFIG_CLIP_DOMAINNET --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P --log_dir ${OUTDIR}/clip/l2p_multilayer --template_style domainnet_template \
-    --prompt_param 100 20 1 -1 --mu $MU
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#     --learner_type default --learner_name NormalNN --log_dir ${OUTDIR}/vit/clip --only_eval_zs \
