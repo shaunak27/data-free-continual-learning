@@ -1,7 +1,7 @@
 # bash experiments/imagenet-r.sh
 # experiment settings\\
 
-## ABLATING GENERATOR !!!
+
 SPLIT=10
 DATASET=IMBALANCEINR
 N_CLASS=200
@@ -65,65 +65,16 @@ MU=0
 
 # l2p
 
-DATE=hepco_v4.0_iid_cutoff_gen_epoch_50
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 50 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_gen_epoch_200
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 200 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_gen_epoch_300
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_epochs 300 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
 
 
-DATE=hepco_v4.0_iid_cutoff_gen_lr_0.001
+DATE=hepco_v5.0_INR_iid_cutoff_cutratio_0.1_percent_0.6_seed_0
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 1e-3 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_gen_lr_0.0005
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --generator_lr 5e-4 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_noisedim_64
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --noise_dimension 64 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
-
-DATE=hepco_v4.0_iid_cutoff_noisedim_128
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
-mkdir -p $OUTDIR
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.1 --n_clients 4 --n_rounds 8 --cutoff --noise_dimension 128 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.6 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.1 \
+    --lambda_KL 1 --replay_ratio 0.5 --noise_dimension 64 --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 0
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

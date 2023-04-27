@@ -49,10 +49,11 @@ class Trainer:
         self.kd_lr = args.kd_lr
         self.replay_ratio = args.replay_ratio
         self.cutoff_ratio = args.cutoff_ratio
+        self.loss_type = args.loss_type
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
-        wandb.init(project="hepcov5.0",name=args.wandb_name)
+        wandb.init(project="hepcov6.0",name=args.wandb_name)
 
         if args.dataset == 'CIFAR10':
             Dataset = dataloaders.iCIFAR10
@@ -91,6 +92,11 @@ class Trainer:
             self.top_k = 1
         elif args.dataset == 'DomainNet':
             Dataset = dataloaders.iDOMAIN_NET
+            num_classes = 345
+            self.dataset_size = [224,224,3]
+            self.top_k = 1
+        elif args.dataset == 'IMBALANCEDNET':
+            Dataset = dataloaders.IMBALANCEDNET
             num_classes = 345
             self.dataset_size = [224,224,3]
             self.top_k = 1
@@ -158,28 +164,6 @@ class Trainer:
                                     download_flag=False, transform=test_transform, 
                                     seed=self.seed, rand_split=args.rand_split, validation=args.validation,client_idx=-1)
 
-        # get dataset stats
-        if False:
-            train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=False, num_workers=8)
-            mean = 0.
-            std = 0.
-            nb_samples = 0.
-            for i, (input, target, task) in enumerate(train_loader):
-                data = input[0]
-                batch_samples = data.size(0)
-                data = data.view(batch_samples, data.size(1), -1)
-                mean += data.mean(2).sum(0)
-                std += data.std(2).sum(0)
-                nb_samples += batch_samples
-                print(i)
-                print(mean / nb_samples)
-                print(std / nb_samples)
-            mean /= nb_samples
-            std /= nb_samples
-            print(mean)
-            print(std)
-            print(done)
-
         # for oracle
         self.oracle_flag = args.oracle_flag
         self.add_dim = 0
@@ -211,6 +195,7 @@ class Trainer:
                         'tasks_real': self.tasks,
                         'top_k': self.top_k,
                         'template_style':args.template_style,
+                        'prompt_type':args.prompt_type,
                         'prompt_param':[self.num_tasks,args.prompt_param] #SHAUN : Important step
                         }             
         self.learner_type, self.learner_name = args.learner_type, args.learner_name
@@ -231,11 +216,13 @@ class Trainer:
         mse = torch.nn.MSELoss(reduction='none')
         diversity_loss = DiversityLoss(metric='l2')
 
-        self.generator_new = Generator(self.noise_dimension).cuda()
-        self.generator_new = torch.nn.DataParallel(self.generator_new, device_ids=[0,1], output_device=0)
+        self.generator_new = Generator(self.noise_dimension,self.num_classes).cuda()
+        dev_ids = self.server_config['gpuid']
+        dev_ids = [int(i) for i in dev_ids]
+        self.generator_new = torch.nn.DataParallel(self.generator_new, device_ids=dev_ids, output_device=0)
 
-        self.generator_old = Generator(self.noise_dimension).cuda()
-        self.generator_old = torch.nn.DataParallel(self.generator_old, device_ids=[0,1], output_device=0)
+        self.generator_old = Generator(self.noise_dimension,self.num_classes).cuda()
+        self.generator_old = torch.nn.DataParallel(self.generator_old, device_ids=dev_ids, output_device=0)
 
         optimizer_new = torch.optim.Adam(self.generator_new.parameters(), lr=self.generator_lr,betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
@@ -313,7 +300,7 @@ class Trainer:
     def knowledge_distillation(self):
         num_epochs = self.kd_epochs #200
         batch_size = 32
-        old_batch_size = int(batch_size*self.replay_ratio) #4
+        old_batch_size = int(batch_size*self.replay_ratio)
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
         optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=self.kd_lr, betas=(0.9, 0.999), #1e-4
@@ -388,11 +375,10 @@ class Trainer:
     def communicate(self):
         with torch.no_grad():
             for key in self.server.model.state_dict().keys():
-                if 'prompt' in key or 'last' in key: #retract : 'last in key
-                    temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
-                    for i in range(self.n_clients):
-                        temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
-                    self.server.model.state_dict()[key].data.copy_(temp)
+                temp = torch.zeros_like(self.server.model.state_dict()[key],dtype=torch.float32)
+                for i in range(self.n_clients):
+                    temp += (1/self.n_clients)*self.learners[i].model.state_dict()[key]
+                self.server.model.state_dict()[key].data.copy_(temp)
         print('Communication successful !')
 
     def train_vis(self, vis_dir, name, t_index, pre=False, embedding=None):
@@ -438,7 +424,7 @@ class Trainer:
         if local:
             return self.server.validation(test_loader, task_in = self.tasks_logits[t_index], task_metric=task, relabel_clusters = local,t_idx = t_index)
         else:
-            return self.server.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=t_index)
+            return self.server.validation(test_loader, task_metric=task, relabel_clusters = local,t_idx=self.current_t_index)
 
     def sim_eval(self, t_index, local=False, task='cka'):
 
@@ -535,7 +521,8 @@ class Trainer:
                     print('======================',f'Client {idx+1 + self.n_clients*r}, Task {train_name}' , '=======================')
 
                     # load dataset for task
-                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients + 2000*self.seed,cutoff=self.cutoff,cutoff_ratio = self.cutoff_ratio) ##SHAUN : See dataloader.py
+                    self.label_counts[idx] = self.train_datasets[idx].load_dataset(i, train=True, label_counts = self.label_counts[idx],seed=idx+1 + self.n_clients*r + self.n_rounds*i*self.n_clients + 2000*self.seed,cutoff=self.cutoff,cutoff_ratio = self.cutoff_ratio) 
+                    #self.train_datasets[idx].load_dataset(i, train=True)
                     # load dataset with memory
                     self.train_datasets[idx].append_coreset(only=False)
 
@@ -550,7 +537,7 @@ class Trainer:
                     # self.learners[idx].debug_model_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'
 
                     # frequency table process
-                    if i > 0:
+                    if i > 0: 
                         try:
                             if self.learners[idx].model.module.prompt is not None:
                                 self.learners[idx].model.module.prompt.process_frequency()
@@ -559,7 +546,7 @@ class Trainer:
                                 self.learners[idx].model.prompt.process_frequency()
 
                     # learn
-                    self.test_datasets[idx].load_dataset(i, train=True) ##SHAUN : loads all tasks seen till now
+                    self.test_datasets[idx].load_dataset(i, train=True) ##SHAUN : loads all tasks seen till now TODO
                     test_loader  = DataLoader(self.test_datasets[idx], batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
                     
                     model_save_dir = self.model_top_dir + f'_client_{idx + self.n_clients*r}/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
@@ -572,7 +559,7 @@ class Trainer:
                         if i > 0:
                             self.prev_server.load_model(prev_server_model_save_dir)
                     except:
-                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader) ## SHAUN : Jump to LWF
+                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader,prev_server=self.prev_server,server=self.server,loss_type = self.loss_type)
 
                     # save model
                     #self.learners[idx].save_model(model_save_dir) 
@@ -621,9 +608,6 @@ class Trainer:
                     if self.hepco:
                         print('Pre distillation:')
                         server_temp_table['predisacc'].append(self.server_task_eval(i, all_tasks=True))         
-                        # if i >0:
-                        #     print('Pre distillation last acc:')
-                        #     server_temp_table['predislastacc'].append(self.server_task_eval(i-1, all_tasks=True))
                         if self.ignore_past_server:
                             self.prev_server = None
                         #record time for the two functions below
@@ -655,14 +639,18 @@ class Trainer:
                 self.label_counts_server_last_task[cls] = self.label_counts_server[cls]
 
             self.server.last_valid_out_dim = self.server.valid_out_dim
+            if self.learner_type == 'kd':
+                self.server.replay = True
+            
+            print(self.learner_type)
             avg_acc += server_temp_table['acc'][-1]
             # save temporary results
             for mkey in self.metric_keys:
                 save_file = server_temp_dir + mkey + '.csv'
                 np.savetxt(save_file, np.asarray(server_temp_table[mkey]), delimiter=",", fmt='%.2f')
-        server_temp_table['acc'].append(f'Average Accuracy : {avg_acc/(self.max_task)}')
+        #server_temp_table['acc'].append(f'Average Accuracy : {avg_acc/(self.max_task)}')
         np.savetxt(server_temp_dir + 'acc.csv', np.asarray(server_temp_table['acc']), delimiter=",", fmt='%s')
-        print('Average accuracy :', avg_acc/(self.max_task))
+        #print('Average accuracy :', avg_acc/(self.max_task))
         return avg_metrics 
     
     def summarize_acc(self, acc_dict, acc_table, acc_table_pt, final_acc):

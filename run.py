@@ -67,9 +67,11 @@ def create_args():
     parser.add_argument('--kd_epochs', type=int, default=200, help="kd_epochs")
     parser.add_argument('--kd_lr', type=float, default=1e-4, help="kd_lr")
     parser.add_argument('--replay_ratio', type=float, default=0.125, help="replay_ratio")
-    parser.add_argument('--cutoff_ratio', type=float, default=0.4, help="cutoff_ratio")
-    #add argument for seed
+    parser.add_argument('--cutoff_ratio', type=float, default=0, help="cutoff_ratio")
     parser.add_argument('--seed', type=int, default=0, help="seed")
+    #add argument named prompt_type with choices l2p and weighted_l2p
+    parser.add_argument('--prompt_type', type=str, default="weighted_l2p", choices=["l2p", "weighted_l2p"], help="prompt_type")
+    parser.add_argument('--loss_type', type=str, default=None, help="loss_type")
     return parser
 
 def get_args(argv):

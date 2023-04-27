@@ -470,7 +470,7 @@ class NormalNN(nn.Module):
         model.eval()
         for i, (input, target, task) in enumerate(dataloader):
 
-            if target.shape[0] < 2: continue
+            if target.shape[0] < len(self.config['gpuid']): continue
             
             if self.gpu:
                 with torch.no_grad():
