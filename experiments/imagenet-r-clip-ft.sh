@@ -67,14 +67,14 @@ MU=0
 
 
 
-DATE=hepco_v5.0_INR_iid_cutoff_cutratio_0.1_percent_0.6_seed_0
+DATE=hepco_v6.0_INR_iid_cutoff_cutratio_0.1_seed_1_percent_0.8
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type prompt --learner_name L2P \
-    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.6 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.1 \
-    --lambda_KL 1 --replay_ratio 0.5 --noise_dimension 64 --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 0
+    --prompt_param 100 20 1 -1 --kl --hepco --imbalance 1 --percent 0.8 --n_clients 5 --n_rounds 10 --cutoff --lambda_KL 1 --cutoff_ratio 0.1 --replay_ratio 0.5 \
+    --noise_dimension 64 --prompt_type weighted_l2p --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 1
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

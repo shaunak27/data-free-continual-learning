@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
-
+import math
 
 class LWF(NormalNN):
 
@@ -87,7 +87,9 @@ class LWF(NormalNN):
 
                     # verify in train mode
                     self.model.train()
-                    if y.size(0) < len(self.config['gpuid']): continue
+                    if math.ceil(y.size(0)/len(self.config['gpuid']))*(len(self.config['gpuid'])-1) >= y.size(0): 
+                        print(y.size(0))
+                        continue
                     # send data to gpu
                     if self.gpu:
                         x = x.cuda()

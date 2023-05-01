@@ -34,8 +34,10 @@ class DualPrompt(LWF):
     def update_model(self, inputs, targets, target_KD = None, loss_type = None, server_model = None):
 
         # logits
-        logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
-        
+        try :
+            logits, prompt_loss = self.model(inputs, train=True) ## SHAUN : Jump to vit_pt_imnet in zoo_old
+        except:
+            print(inputs.shape,inputs.device)
         tasks_till_now = [j for sub in self.tasks_real[:self.task_count+1] for j in sub]
         #print(tasks_till_now,self.last_valid_out_dim)
         logits = logits[:,tasks_till_now]
