@@ -470,8 +470,9 @@ class NormalNN(nn.Module):
         model.eval()
         for i, (input, target, task) in enumerate(dataloader):
 
-            if target.shape[0] < len(self.config['gpuid']): continue
-            
+            if math.ceil(target.shape[0]/len(self.config['gpuid']))*(len(self.config['gpuid'])-1) >= target.shape[0]: 
+                    print(target.shape[0])
+                    continue
             if self.gpu:
                 with torch.no_grad():
                     input = input.cuda()

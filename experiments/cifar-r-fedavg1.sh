@@ -9,7 +9,7 @@ N_CLASS=100
 
 # hard coded inputs
 GPUID='0 1'
-CONFIG_CLIP_P=configs/cifar100_vit_prompt.yaml
+CONFIG_CLIP_P=configs/cifar100_vit.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0

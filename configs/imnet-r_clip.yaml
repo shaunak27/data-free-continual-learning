@@ -1,12 +1,12 @@
-dataset: ImageNet_R
-first_split_size: 40
-other_split_size: 40
+dataset: IMBALANCEINR
+first_split_size: 20
+other_split_size: 20
 schedule:
-- 20
+- 10
 schedule_type: cosine
-batch_size: 128
+batch_size: 64
 optimizer: Adam
-lr: 0.00001
+lr: 0.0001
 momentum: 0.9
 weight_decay: 0
 model_type: zoo_old

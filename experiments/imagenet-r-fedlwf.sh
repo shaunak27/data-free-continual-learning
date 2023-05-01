@@ -8,8 +8,8 @@ N_CLASS=200
 
 
 # hard coded inputs
-GPUID='0 1 2 3'
-CONFIG_CLIP_P=configs/imnet-r_clip.yaml
+GPUID='0 1'
+CONFIG_CLIP_P=configs/imnet-r_vit_prompt_atte.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
@@ -65,16 +65,23 @@ MU=0
 
 # l2p
 
-
-
-DATE=vanilla_INR_lwf_mc_centralized_newbackbone_1e-5_5task
+DATE=fedlwfmc_v6.0_INR_iid_cutoff_cutratio_0.4_seed_1_smalllr
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
     --learner_type kd --learner_name LWF_MC \
-    --imbalance 1 --percent 1 --n_clients 1 --n_rounds 1 --cutoff_ratio 0 \
+    --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.4 \
     --wandb_name $DATE \
-    --log_dir ${OUTDIR}/vit/l2p_multi-layer --seed 0
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 1
+
+# DATE=vanilla_INR_lwf_mc_centralized_newbackbone_5e-5_5task
+# OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+# mkdir -p $OUTDIR
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#     --learner_type kd --learner_name LWF_MC \
+#     --imbalance 1 --percent 1 --n_clients 1 --n_rounds 1 --cutoff_ratio 0 \
+#     --wandb_name $DATE \
+#     --log_dir ${OUTDIR}/vit/l2p_multi-layer --seed 0
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
