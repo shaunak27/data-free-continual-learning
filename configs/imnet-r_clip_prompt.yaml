@@ -14,7 +14,7 @@ model_name: vit_pt_imnet
 vis_flag: False
 max_task: 10
 dataroot: data
-workers: 8
+workers: 16
 validation: False
 train_aug: True
 rand_split: True

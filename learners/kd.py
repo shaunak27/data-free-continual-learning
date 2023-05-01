@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from utils.schedulers import CosineSchedule
 from torch.autograd import Variable, Function
 import math
+import time
 
 class LWF(NormalNN):
 
@@ -231,9 +232,12 @@ class LWF_MC(LWF):
         if target_KD is not None:
             target_mod = get_one_hot(targets, self.valid_out_dim)
             target_mod[:, :self.last_valid_out_dim] = torch.sigmoid(target_KD)
+            # print(target_mod)
             total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
         else:
             target_mod = get_one_hot(targets, self.valid_out_dim)
+            # print(torch.sigmoid(logits),target_mod)
+            # time.sleep(10)
             total_loss = self.ce_loss(torch.sigmoid(logits), target_mod)
 
         self.optimizer.zero_grad()

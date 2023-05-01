@@ -301,7 +301,7 @@ class Trainer:
     def knowledge_distillation(self):
         num_epochs = self.kd_epochs #200
         batch_size = 32
-        old_batch_size = int(batch_size*self.replay_ratio)
+        old_batch_size = int(batch_size*self.replay_ratio) #TODO : correct for the case when prev_server is None, batch_size += old_batch_size
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
         optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=self.kd_lr, betas=(0.9, 0.999), #1e-4
@@ -345,6 +345,7 @@ class Trainer:
             optimizer1.step()
             pb1.set_description('Epoch: {}, MSE Loss: {}'.format(it, mse_loss))
         xent_loss = 0
+        
         for it in pb2: 
             with torch.no_grad():
                 labels_new = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
@@ -360,8 +361,15 @@ class Trainer:
                     labels_combined = torch.cat((labels_translated_new,labels_translated_old),dim=0)
                 else:
                     z_combined = z_new
-                    labels_combined = labels_translated_new         
-            xent_loss = cross_entropy(self.server.model(x=None,z=z_combined)[:,tasks_till_now], labels_combined)            
+                    labels_combined = labels_translated_new 
+            logits = self.server.model(x=None,z=z_combined)[:,tasks_till_now]
+
+            if it == 0:
+                print(z_new.shape[0],self.server.last_valid_out_dim)
+
+            logits[:z_new.shape[0],:self.server.last_valid_out_dim] = -float('inf')
+            logits[z_new.shape[0]:,self.server.last_valid_out_dim:] = -float('inf')   
+            xent_loss = cross_entropy(logits, labels_combined)            
             optimizer2.zero_grad()
             xent_loss.backward()
             optimizer2.step()
