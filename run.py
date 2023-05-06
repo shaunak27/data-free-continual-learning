@@ -72,6 +72,7 @@ def create_args():
     #add argument named prompt_type with choices l2p and weighted_l2p
     parser.add_argument('--prompt_type', type=str, default="weighted_l2p", choices=["l2p", "weighted_l2p"], help="prompt_type")
     parser.add_argument('--loss_type', type=str, default=None, help="loss_type")
+    parser.add_argument('--lambda_prox', type=float, default=0.01, help="coefficient for fedprox loss")
     return parser
 
 def get_args(argv):

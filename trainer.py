@@ -53,6 +53,7 @@ class Trainer:
         # select dataset
         self.grayscale_vis = False
         self.top_k = 1
+        self.lambda_prox = args.lambda_prox
         wandb.init(project="hepcov6.0",name=args.wandb_name)
 
         if args.dataset == 'CIFAR10':
@@ -210,7 +211,7 @@ class Trainer:
 
     def train_generator(self,round=0,task=0):
         n_epochs_new = self.generator_epochs #100
-        batch_size = 32
+        batch_size = 64
         cross_entropy = torch.nn.CrossEntropyLoss(reduction='none')
         kl_div = torch.nn.KLDivLoss(reduction='none')
         mse = torch.nn.MSELoss(reduction='none')
@@ -269,7 +270,7 @@ class Trainer:
             #wandb.log({'xent_loss':xent_loss, 'kl_loss':kl_loss})
         
         if self.prev_server is not None:
-            pbar = tqdm(range(n_epochs_new),total=n_epochs_new)
+            pbar = tqdm(range(n_epochs_new + 50*self.current_t_index),total=n_epochs_new + 50*self.current_t_index)
             xent_loss = 0
             kl_loss = 0
             div_loss = 0
@@ -299,7 +300,7 @@ class Trainer:
 
     def knowledge_distillation(self):
         num_epochs = self.kd_epochs #200
-        batch_size = 32
+        batch_size = 64
         old_batch_size = int(batch_size*self.replay_ratio)
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
@@ -559,7 +560,7 @@ class Trainer:
                         if i > 0:
                             self.prev_server.load_model(prev_server_model_save_dir)
                     except:
-                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader,prev_server=self.prev_server,server=self.server,loss_type = self.loss_type)
+                        avg_train_time = self.learners[idx].learn_batch(train_loader, self.train_datasets[idx], model_save_dir, test_loader,prev_server=self.prev_server,server=self.server,loss_type = self.loss_type,lambda_prox = self.lambda_prox)
 
                     # save model
                     #self.learners[idx].save_model(model_save_dir) 

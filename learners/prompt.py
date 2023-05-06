@@ -31,7 +31,7 @@ class DualPrompt(LWF):
         super(DualPrompt, self).__init__(learner_config)  ##SHAUN : Jump to LWF init
 
     # update model - add dual prompt loss   
-    def update_model(self, inputs, targets, target_KD = None, loss_type = None, server_model = None):
+    def update_model(self, inputs, targets, target_KD = None, loss_type = None, server_model = None, lambda_prox = 0.01):
 
         # logits
         try :
@@ -54,7 +54,7 @@ class DualPrompt(LWF):
                 for (n,w), (n_t,w_t) in zip(server_model.named_parameters(),self.model.named_parameters()):
                     if 'prompt' in n or 'last' in n:
                         penalty += torch.pow(torch.norm(w.detach() - w_t), 2)
-                total_loss += (0.1 / 2.) * penalty
+                total_loss += (lambda_prox / 2.) * penalty
         # ce loss
         total_loss = total_loss + self.mu * prompt_loss.sum()
         # step

@@ -387,29 +387,29 @@ class IMBALANCEINR(iIMAGENET_R):
         super(IMBALANCEINR, self).__init__(root, train, transform, download_flag,tasks=tasks,seed=seed,validation=validation,rand_split=rand_split)
         # np.random.seed(rand_number)
 
-    def load(self):
-        self.data, self.targets = [], []
-        images_path = os.path.join(self.root, self.base_folder)
-        data_dict = get_data(images_path)
-        y = 0
-        for key in data_dict.keys():
-            num_y = len(data_dict[key])
-            self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
-            self.targets.extend([y for i in np.arange(0,num_y)])
-            y += 1
+    # def load(self):
+    #     self.data, self.targets = [], []
+    #     images_path = os.path.join(self.root, self.base_folder)
+    #     data_dict = get_data(images_path)
+    #     y = 0
+    #     for key in data_dict.keys():
+    #         num_y = len(data_dict[key])
+    #         self.data.extend([data_dict[key][i] for i in np.arange(0,num_y)])
+    #         self.targets.extend([y for i in np.arange(0,num_y)])
+    #         y += 1
 
-        n_data = len(self.targets)
-        index_sample = [i for i in range(n_data)]
-        import random
-        random.seed(0)
-        random.shuffle(index_sample)
-        if self.train or self.validation:
-            index_sample = index_sample[:int(0.8*n_data)]
-        else:
-            index_sample = index_sample[int(0.8*n_data):]
+    #     n_data = len(self.targets)
+    #     index_sample = [i for i in range(n_data)]
+    #     import random
+    #     random.seed(0)
+    #     random.shuffle(index_sample)
+    #     if self.train or self.validation:
+    #         index_sample = index_sample[:int(0.8*n_data)]
+    #     else:
+    #         index_sample = index_sample[int(0.8*n_data):]
 
-        self.data = [self.data[i] for i in index_sample]
-        self.targets = [self.targets[i] for i in index_sample]
+    #     self.data = [self.data[i] for i in index_sample]
+    #     self.targets = [self.targets[i] for i in index_sample]
 
     def load_dataset(self, t, train=True, label_counts=None, seed=-1, cutoff=False, cutoff_ratio = 0):
         

@@ -35,7 +35,7 @@ class LWF(NormalNN):
         self.ce_loss = nn.BCELoss()
         self.init_task_param_reg = self.eps > 0
 
-    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None,prev_server=None,server=None,loss_type = None):
+    def learn_batch(self, train_loader, train_dataset, model_save_dir, val_loader=None,prev_server=None,server=None,loss_type = None,lambda_prox = 0.01):
         
         # L2 from the start
         if self.init_task_param_reg: self.accumulate_block_memory(train_loader)
@@ -103,7 +103,7 @@ class LWF(NormalNN):
                         y_hat = None
 
                     # model update - training data
-                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat,loss_type = loss_type, server_model = server.model if server is not None else None)
+                    loss, loss_class, loss_distill, output= self.update_model(x, y, y_hat,loss_type = loss_type, server_model = server.model if server is not None else None,lambda_prox = lambda_prox)
 
                     # measure elapsed time
                     batch_time.update(batch_timer.toc()) 
@@ -169,7 +169,7 @@ class LWF(NormalNN):
     def accumulate_block_memory(self, train_loader):
         pass
 
-    def update_model(self, inputs, targets, target_KD = None):  ##TODO : Handle last_valid_out_dim and stuff for shuffled tasks
+    def update_model(self, inputs, targets, target_KD = None,loss_type = None, server_model = None,lambda_prox = 0.01):  ##TODO : Handle last_valid_out_dim and stuff for shuffled tasks
         
         total_loss = torch.zeros((1,), requires_grad=True).cuda()
 
@@ -222,7 +222,7 @@ class LWF_MC(LWF):
         super(LWF_MC, self).__init__(learner_config)
         
 
-    def update_model(self, inputs, targets, target_KD = None,loss_type = None, server_model = None):
+    def update_model(self, inputs, targets, target_KD = None,loss_type = None, server_model = None,lambda_prox = 0.01):
 
         # get output
         logits = self.forward(inputs)
