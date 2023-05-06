@@ -8,7 +8,7 @@ N_CLASS=345
 
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0 1'
 CONFIG_CLIP_P=configs/domainnet_clip_prompt.yaml
 REPEAT=1
 MEMORY=0
@@ -67,7 +67,7 @@ MU=0
 
 
 
-DATE=fedprox_v6.0_DOMAINNET_iid_cutoff_cutratio_0.4_seed_1
+DATE=fedprox_v6.0_DOMAINNET_iid_cutoff_cutratio_0.4_seed_1_alldoms
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

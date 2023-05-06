@@ -708,7 +708,7 @@ class IMBALANCEDNET(iDOMAIN_NET):
 def get_data(root_images):
 
     import glob
-    files = glob.glob(root_images+'/*/*.jpg')
+    files = glob.glob(root_images+'/*/*.*')
     data = {}
     for path in files:
         y = os.path.basename(os.path.dirname(path))
@@ -721,7 +721,7 @@ def get_data(root_images):
 def get_data_deep(root_images):
 
     import glob
-    files = glob.glob(root_images+'/*/*/*.jpg')
+    files = glob.glob(root_images+'/*/*/*.*')
     data = {}
     for path in files:
         y = os.path.basename(os.path.dirname(path))

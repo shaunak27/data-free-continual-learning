@@ -211,7 +211,7 @@ class Trainer:
 
     def train_generator(self,round=0,task=0):
         n_epochs_new = self.generator_epochs #100
-        batch_size = 32
+        batch_size = 64
         cross_entropy = torch.nn.CrossEntropyLoss(reduction='none')
         kl_div = torch.nn.KLDivLoss(reduction='none')
         mse = torch.nn.MSELoss(reduction='none')
@@ -270,7 +270,7 @@ class Trainer:
             #wandb.log({'xent_loss':xent_loss, 'kl_loss':kl_loss})
         
         if self.prev_server is not None:
-            pbar = tqdm(range(n_epochs_new),total=n_epochs_new)
+            pbar = tqdm(range(n_epochs_new + 50*self.current_t_index),total=n_epochs_new + 50*self.current_t_index)
             xent_loss = 0
             kl_loss = 0
             div_loss = 0
@@ -300,7 +300,7 @@ class Trainer:
 
     def knowledge_distillation(self):
         num_epochs = self.kd_epochs #200
-        batch_size = 32
+        batch_size = 64
         old_batch_size = int(batch_size*self.replay_ratio) #TODO : correct for the case when prev_server is None, batch_size += old_batch_size
         mse = torch.nn.MSELoss()
         cross_entropy = torch.nn.CrossEntropyLoss()
@@ -362,14 +362,14 @@ class Trainer:
                 else:
                     z_combined = z_new
                     labels_combined = labels_translated_new 
-            logits = self.server.model(x=None,z=z_combined)[:,tasks_till_now]
+            # logits = self.server.model(x=None,z=z_combined)[:,tasks_till_now]
 
-            if it == 0:
-                print(z_new.shape[0],self.server.last_valid_out_dim)
+            # if it == 0:
+            #     print(z_new.shape[0],self.server.last_valid_out_dim)
 
-            logits[:z_new.shape[0],:self.server.last_valid_out_dim] = -float('inf')
-            logits[z_new.shape[0]:,self.server.last_valid_out_dim:] = -float('inf')   
-            xent_loss = cross_entropy(logits, labels_combined)            
+            # logits[:z_new.shape[0],:self.server.last_valid_out_dim] = -float('inf')
+            # logits[z_new.shape[0]:,self.server.last_valid_out_dim:] = -float('inf')   
+            xent_loss = cross_entropy(self.server.model(x=None,z=z_combined)[:,tasks_till_now], labels_combined)            
             optimizer2.zero_grad()
             xent_loss.backward()
             optimizer2.step()
@@ -473,9 +473,9 @@ class Trainer:
         #initialize a dictionary to store the counts of labels seen by each client
         
         #initialize a dictionary to store the counts of labels
-        self.label_counts_server = {}
-        for j in range(self.num_classes):
-            self.label_counts_server[j] = 0
+        # self.label_counts_server = {}
+        # for j in range(self.num_classes):
+        #     self.label_counts_server[j] = 0
 
         #initialize a dictionary to store the counts of labels seen by server until last task
         self.label_counts_server_last_task = {}
@@ -502,7 +502,9 @@ class Trainer:
             # add valid class to classifier
             self.server.add_valid_output_dim(self.add_dim)
             self.server.task_count = i
- 
+            self.label_counts_task = {}
+            for j in range(self.num_classes):
+                self.label_counts_task[j] = 0
             print('======================', train_name, '=======================')   
             for r in range(self.n_rounds):
                 self.learners = [copy.deepcopy(self.server) for _ in range(self.n_clients)]
@@ -604,10 +606,17 @@ class Trainer:
                     #     if i > 0 and self.vis_flag: avg_metrics['cka']['global'][i][idx + self.n_clients*r] = self.sim_eval(i, local=False,client_idx=idx)
                 
                 #aggregate label counts to server label counts per class
+                
+
                 for row in range(self.num_classes):
                     for idx1 in range(self.n_clients):
                         self.label_counts_round[row] += self.label_counts[idx1][row]
-
+                    self.label_counts_round[row] += self.label_counts_task[row]
+                
+                for row in range(self.num_classes):
+                    for idx1 in range(self.n_clients):
+                        self.label_counts[idx1][row] += self.label_counts_task[row]
+                
                 try:
                     self.server.load_model(server_model_save_dir)
                     if i > 0:
@@ -629,8 +638,11 @@ class Trainer:
                 self.server.save_model(server_model_save_dir)
 
                 for row in range(self.num_classes):
-                    for idx1 in range(self.n_clients):
-                        self.label_counts_server[row] += self.label_counts[idx1][row]
+                    self.label_counts_task[row] = self.label_counts_round[row]
+
+                # for row in range(self.num_classes):
+                #     for idx1 in range(self.n_clients):
+                #         self.label_counts_server[row] += self.label_counts[idx1][row]
 
                 server_temp_table['acc'].append(self.server_task_eval(i, all_tasks=True))
                 server_temp_table['plastic'].append(self.server_task_eval(i, all_tasks=False))
@@ -645,7 +657,7 @@ class Trainer:
 
             self.prev_server = copy.deepcopy(self.server)
             for cls in range(self.num_classes):
-                self.label_counts_server_last_task[cls] = self.label_counts_server[cls]
+                self.label_counts_server_last_task[cls] += self.label_counts_task[cls]
 
             self.server.last_valid_out_dim = self.server.valid_out_dim
             if self.learner_type == 'kd':

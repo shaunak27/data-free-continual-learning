@@ -170,7 +170,7 @@ class LWF(NormalNN):
     def accumulate_block_memory(self, train_loader):
         pass
 
-    def update_model(self, inputs, targets, target_KD = None):  ##TODO : Handle last_valid_out_dim and stuff for shuffled tasks
+    def update_model(self, inputs, targets, target_KD = None,loss_type = None, server_model = None):  ##TODO : Handle last_valid_out_dim and stuff for shuffled tasks
         
         total_loss = torch.zeros((1,), requires_grad=True).cuda()
 
