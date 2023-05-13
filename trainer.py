@@ -54,6 +54,8 @@ class Trainer:
         self.grayscale_vis = False
         self.top_k = 1
         self.lambda_prox = args.lambda_prox
+        self.minmax_epochs = args.minmax_epochs
+        self.lambda_mse = args.lambda_mse
         wandb.init(project="hepcov6.0",name=args.wandb_name)
 
         if args.dataset == 'CIFAR10':
@@ -242,6 +244,14 @@ class Trainer:
         pbar = tqdm(range(n_epochs_new),total=n_epochs_new)
         tasks_till_now = [j for sub in self.server.tasks_real[:self.current_t_index+1] for j in sub]
         class_mapping = self.server_test_dataset.class_mapping
+        adjusted_label_counts_round = copy.deepcopy(self.label_counts_round)
+        for key in adjusted_label_counts_round.keys():
+            if adjusted_label_counts_round[key] == 0:
+                adjusted_label_counts_round[key] = 1
+        adjusted_label_counts_server_last_task = copy.deepcopy(self.label_counts_server_last_task)
+        for key in adjusted_label_counts_server_last_task.keys():
+            if adjusted_label_counts_server_last_task[key] > 0:
+                adjusted_label_counts_server_last_task[key] = 1
         for i in pbar:
             #ENSURE RANDOMNESS !!!
             labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_round.values())) / np.array(list(self.label_counts_round.values())).sum())).cuda()
@@ -252,17 +262,23 @@ class Trainer:
             xent_loss = 0
             kl_loss = 0
             div_loss = 0
+            mse_loss = 0
             for j in range(self.n_clients):
                 ## ADD PROVISION IN CASE label counts sum is zero (mainly for prev tasks)
-                xent_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels] * cross_entropy(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
+                xent_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(adjusted_label_counts_round.values())).sum()).cuda()[labels] * cross_entropy(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
+                
                 if self.kl:
-                    kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
+                    kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(adjusted_label_counts_round.values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 else :
-                    kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda() * mse(torch.softmax(self.server.model.forward(x=None,z=z), dim=1)[:,tasks_till_now],torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
-                div_loss += diversity_loss(eps,z)
+                    kl_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(adjusted_label_counts_round.values())).sum()).cuda() * mse(torch.softmax(self.server.model.forward(x=None,z=z), dim=1)[:,tasks_till_now],torch.softmax(self.learners[j].model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
+                
+                for layer in self.server.model.module.prompt.e_layers:
+                    mse_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(adjusted_label_counts_round.values())).sum()).cuda()[labels][:,None,None] * mse(self.server.model.module.prompt.forward(z,layer,None,train=True,hepco=True), self.learners[j].model.module.prompt.forward(z,layer,None,train=True,hepco=True))).sum() 
             
-            total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss 
-            
+            div_loss += diversity_loss(eps,z)
+            total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss #- self.lambda_mse*mse_loss
+            if self.lambda_mse:
+                total_loss += - self.lambda_mse * mse_loss
             total_loss.backward()
             optimizer_new.step()
             optimizer_new.zero_grad()
@@ -270,11 +286,12 @@ class Trainer:
             #wandb.log({'xent_loss':xent_loss, 'kl_loss':kl_loss})
         
         if self.prev_server is not None:
-            pbar = tqdm(range(n_epochs_new + 50*self.current_t_index),total=n_epochs_new + 50*self.current_t_index)
-            xent_loss = 0
-            kl_loss = 0
-            div_loss = 0
+            pbar = tqdm(range(n_epochs_new + 50*self.current_t_index),total=n_epochs_new + 50*self.current_t_index)  
             for i in pbar:
+                xent_loss = 0
+                kl_loss = 0
+                div_loss = 0
+                mse_loss = 0
                 #ENSURE RANDOMNESS !!!
                 labels = torch.from_numpy(np.random.choice(self.num_classes, batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
                 labels_translated = torch.tensor([class_mapping[j.item()] for j in labels]).cuda()
@@ -282,11 +299,16 @@ class Trainer:
                 z = self.generator_old(labels,eps)
                 
                 div_loss = diversity_loss(eps,z)
-                xent_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
-                kl_loss = ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
+                xent_loss = (torch.tensor(list(adjusted_label_counts_server_last_task.values())).cuda()[labels] * cross_entropy(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], labels_translated)).sum()
                 
-                total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss 
+                kl_loss = (torch.tensor(list(adjusted_label_counts_server_last_task.values())).cuda()[labels][:,None] * kl_div(torch.log_softmax(self.server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1),torch.softmax(self.prev_server.model.forward(x=None,z=z)[:,tasks_till_now], dim=1))).sum()
                 
+                for layer in self.server.model.module.prompt.e_layers:
+                    mse_loss += (torch.tensor(list(adjusted_label_counts_server_last_task.values())).cuda()[labels][:,None,None]*mse(self.server.model.module.prompt.forward(z,layer,None,train=True,hepco=True), self.prev_server.model.module.prompt.forward(z,layer,None,train=True,hepco=True))).sum()
+
+                total_loss = xent_loss - self.lambda_KL*kl_loss + div_loss #- self.lambda_mse * mse_loss
+                if self.lambda_mse:
+                    total_loss += - self.lambda_mse * mse_loss
                 total_loss.backward()
                 optimizer_old.step()
                 optimizer_old.zero_grad()
@@ -302,7 +324,7 @@ class Trainer:
         num_epochs = self.kd_epochs #200
         batch_size = 64
         old_batch_size = int(batch_size*self.replay_ratio)
-        mse = torch.nn.MSELoss()
+        mse = torch.nn.MSELoss(reduction='none')
         cross_entropy = torch.nn.CrossEntropyLoss()
         optimizer1 = torch.optim.Adam(self.server.model.module.prompt.parameters(), lr=self.kd_lr, betas=(0.9, 0.999), #1e-4
             eps=1e-08, amsgrad=False)
@@ -321,6 +343,16 @@ class Trainer:
         pb2 = tqdm(range(num_epochs),total=num_epochs)
         tasks_till_now = [j for sub in self.server.tasks_real[:self.current_t_index+1] for j in sub]
         class_mapping = self.server_test_dataset.class_mapping
+
+        adjusted_label_counts_round = copy.deepcopy(self.label_counts_round)
+        for key in adjusted_label_counts_round.keys():
+            if adjusted_label_counts_round[key] == 0:
+                adjusted_label_counts_round[key] = 1
+        adjusted_label_counts_server_last_task = copy.deepcopy(self.label_counts_server_last_task)
+        for key in adjusted_label_counts_server_last_task.keys():
+            if adjusted_label_counts_server_last_task[key] > 0:
+                adjusted_label_counts_server_last_task[key] = 1
+
         for it in pb1:
             mse_loss = 0
             with torch.no_grad():
@@ -330,7 +362,7 @@ class Trainer:
                 z_new = self.generator_new(labels_new,eps_new)
             for j in range(self.n_clients):
                 for layer in self.server.model.module.prompt.e_layers:
-                    mse_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(self.label_counts[j].values())).sum()).cuda()[labels_new] * mse(self.server.model.module.prompt.forward(z_new,layer,None,train=True,hepco=True), self.learners[j].model.module.prompt.forward(z_new,layer,None,train=True,hepco=True))).sum() 
+                    mse_loss += ((torch.tensor(list(self.label_counts[j].values())) / torch.tensor(list(adjusted_label_counts_round.values())).sum()).cuda()[labels_new][:,None,None] * mse(self.server.model.module.prompt.forward(z_new,layer,None,train=True,hepco=True), self.learners[j].model.module.prompt.forward(z_new,layer,None,train=True,hepco=True))).sum() 
             
             if self.prev_server is not None:
                 labels_old = torch.from_numpy(np.random.choice(self.num_classes, old_batch_size, p=np.array(list(self.label_counts_server_last_task.values())) / np.array(list(self.label_counts_server_last_task.values())).sum())).cuda()
@@ -338,7 +370,7 @@ class Trainer:
                 eps_old = torch.randn(labels_old.shape[0], self.noise_dimension).cuda()
                 z_old = self.generator_old(labels_old,eps_old)
                 for layer in self.server.model.module.prompt.e_layers:
-                        mse_loss += ((torch.tensor(list(self.label_counts_server_last_task.values())) / torch.tensor(list(self.label_counts_server_last_task.values())).sum()).cuda()[labels_old] * mse(self.server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True), self.prev_server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True))).sum()
+                        mse_loss += (torch.tensor(list(adjusted_label_counts_server_last_task.values())).cuda()[labels_old][:,None,None] * mse(self.server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True), self.prev_server.model.module.prompt.forward(z_old,layer,None,train=True,hepco=True))).sum()
 
             optimizer1.zero_grad()
             mse_loss.backward()
@@ -612,9 +644,10 @@ class Trainer:
                         if self.ignore_past_server:
                             self.prev_server = None
                         #record time for the two functions below
-                        t = time.time()
-                        self.train_generator(round=r,task=i)
-                        self.knowledge_distillation()
+                        t = time.time() 
+                        for _ in range(self.minmax_epochs):
+                            self.train_generator(round=r,task=i)
+                            self.knowledge_distillation()
                         print('Time for distillation:',time.time()-t)
                     
                 if not os.path.exists(server_model_save_dir): os.makedirs(server_model_save_dir)

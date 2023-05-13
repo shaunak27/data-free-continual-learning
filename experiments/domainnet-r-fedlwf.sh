@@ -67,11 +67,11 @@ MU=0
 
 
 
-DATE=fedlwf_v6.0_DOMAINNET_iid_cutoff_cutratio_0.4_seed_1
+DATE=fedlwfmc_v6.0_DOMAINNET_iid_cutoff_cutratio_0.4_seed_1_smalllr
 OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
 mkdir -p $OUTDIR
 python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-    --learner_type kd --learner_name LWF \
+    --learner_type kd --learner_name LWF_MC \
     --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.4 \
     --wandb_name $DATE \
     --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 1
