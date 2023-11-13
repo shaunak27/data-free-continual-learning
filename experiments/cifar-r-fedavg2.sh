@@ -1,19 +1,15 @@
 # bash experiments/imagenet-r.sh
-# experiment settings
-SPLIT=10
-DATASET=ImageNet_R
-N_CLASS=200
+# experiment settings\\
 
-# save directory
-DATE=clip_dualprompt_onlyprompt
-OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+
+SPLIT=10
+DATASET=IMBALANCECIFAR
+N_CLASS=100
+
 
 # hard coded inputs
-GPUID='0 1 2 3'
-CONFIG_VIT=configs/imnet-r_vit.yaml
-CONFIG_VIT_P_ATT=configs/imnet-r_vit_prompt_atte.yaml
-CONFIG_VIT_P=configs/imnet-r_vit_prompt.yaml
-CONFIG_CLIP_P=configs/imnet-r_clip_prompt.yaml
+GPUID='0 1'
+CONFIG_CLIP_P=configs/cifar100_vit_prompt.yaml
 REPEAT=1
 MEMORY=0
 OVERWRITE=0
@@ -27,7 +23,6 @@ then
     MAXTASK=3
     SCHEDULE="2"
 fi
-mkdir -p $OUTDIR
 
 
 # # atteprompt
@@ -56,7 +51,7 @@ mkdir -p $OUTDIR
 
 
 
-MU=1
+MU=0
 # ablate attention
 # python -u run.py --config $CONFIG_VIT_P_ATT --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name DualPrompt \
@@ -69,10 +64,26 @@ MU=1
 #     --log_dir ${OUTDIR}/vit/atteprompt_small
 
 # l2p
-# python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+
+
+
+DATE=fedprox_v6.0_CIFAR_iid_cutoff_cutratio_0.4_seed_9_mu_0.01
+OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+mkdir -p $OUTDIR
+python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+    --learner_type prompt --learner_name L2P \
+    --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.4 \
+    --prompt_type weighted_l2p --wandb_name $DATE \
+    --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 9 --loss_type fedprox
+
+# DATE=fedprox_v6.0_CIFAR_iid_cutoff_cutratio_0.4_seed_27_mu_0.01
+# OUTDIR=_outputs/${DATE}/${DATASET}/${SPLIT}-task
+# mkdir -p $OUTDIR
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
 #     --learner_type prompt --learner_name L2P \
-#     --prompt_param 100 20 1 -1 \
-#     --log_dir ${OUTDIR}/vit/l2p_multi-layer
+#     --prompt_param 100 20 1 -1 --kl --imbalance 1 --percent 0.1 --n_clients 5 --n_rounds 10 --cutoff --cutoff_ratio 0.4 \
+#     --prompt_type weighted_l2p --wandb_name $DATE \
+#     --log_dir ${OUTDIR}/vit/l2p_multi-layer --overwrite 1 --seed 27 --loss_type fedprox
 
 # l2p
 # python -u run.py --config $CONFIG_VIT_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
@@ -114,9 +125,9 @@ MU=1
 #     --prompt_param 100 20 1 -1 --freeze_last
 
 ## clip dualprompt (freeze last)
-python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
-     --learner_type prompt --learner_name DualPrompt --mu $MU --log_dir ${OUTDIR}/clip/dualprompt \
-    --prompt_param 10 20 6 -1 --freeze_last
+# python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \
+#      --learner_type prompt --learner_name DualPrompt --mu $MU --log_dir ${OUTDIR}/clip/dualprompt \
+#     --prompt_param 10 20 6 -1 --freeze_last
 
 # # # clip ZS with prompting
 # python -u run.py --config $CONFIG_CLIP_P --gpuid $GPUID --repeat $REPEAT --memory $MEMORY --overwrite $OVERWRITE --debug_mode $DEBUG \

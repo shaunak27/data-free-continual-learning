@@ -50,6 +50,31 @@ def create_args():
                          help="template style")
     parser.add_argument('--freeze_last', default=False, action='store_true', help='freeze last layer')
     parser.add_argument('--only_eval_zs',default=False,action='store_true',help='evaluate zs clip')
+    parser.add_argument('--n_clients', type=int, default=5, help="number of clients")
+    parser.add_argument('--n_rounds', type=int, default=20, help="number of rounds")
+    parser.add_argument('--kl', default=False, action='store_true', help='use kl')
+    parser.add_argument('--hepco', default=False, action='store_true', help='use hepco')
+    parser.add_argument('--imbalance', type=float, default=0.01, help="imbalance")
+    parser.add_argument('--percent', type=float, default=0.1, help="percent")
+    parser.add_argument('--cutoff',default=False,action='store_true',help='cutoff')
+    parser.add_argument('--wandb_name', type=str, default="test", help="wandb name")
+    parser.add_argument('--ignore_past_server', default=False, action='store_true', help='ignore past server')
+    #add argument for lambda_KL which is float and default value 1
+    parser.add_argument('--lambda_KL', type=float, default=1, help="lambda_KL")
+    parser.add_argument('--generator_epochs', type=int, default=100, help="generator_epochs")
+    parser.add_argument('--generator_lr', type=float, default=1e-4, help="generator_lr")
+    parser.add_argument('--noise_dimension', type=int, default=32, help="noise_dimension")
+    parser.add_argument('--kd_epochs', type=int, default=200, help="kd_epochs")
+    parser.add_argument('--kd_lr', type=float, default=1e-4, help="kd_lr")
+    parser.add_argument('--replay_ratio', type=float, default=0.125, help="replay_ratio")
+    parser.add_argument('--cutoff_ratio', type=float, default=0, help="cutoff_ratio")
+    parser.add_argument('--seed', type=int, default=0, help="seed")
+    #add argument named prompt_type with choices l2p and weighted_l2p
+    parser.add_argument('--prompt_type', type=str, default="weighted_l2p", choices=["l2p", "weighted_l2p"], help="prompt_type")
+    parser.add_argument('--loss_type', type=str, default=None, help="loss_type")
+    parser.add_argument('--lambda_prox', type=float, default=0.01, help="coefficient for fedprox loss")
+    parser.add_argument('--minmax_epochs', type=int, default=1, help="minmax_epochs")
+    parser.add_argument('--lambda_mse', type=float, default=1, help="coefficient for mse loss")
     return parser
 
 def get_args(argv):
@@ -80,16 +105,16 @@ if __name__ == '__main__':
 
     # duplicate output stream to output file
     if not os.path.exists(args.log_dir): os.makedirs(args.log_dir)
-    log_out = args.log_dir + '/output.log'
+    log_out = args.log_dir + '/output_new.log'
     sys.stdout = Logger(log_out)
 
     # save args
     with open(args.log_dir + '/args.yaml', 'w') as yaml_file:
         yaml.dump(vars(args), yaml_file, default_flow_style=False)
         
-    metric_keys = ['acc','mem','time','plastic','til','cka']
+    metric_keys = ['acc','lastacc','time','plastic','til','cka','predisacc','predislastacc']
     save_keys = ['global', 'pt', 'pt-local']
-    global_only = ['mem','time','plastic','til','cka']
+    global_only = ['lastacc','time','plastic','til','cka','predisacc','predislastacc']
     avg_metrics = {}
     for mkey in metric_keys: 
         avg_metrics[mkey] = {}
@@ -131,7 +156,7 @@ if __name__ == '__main__':
         print('************************************')
 
         # set random seeds
-        seed = 0
+        seed = args.seed
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -144,19 +169,15 @@ if __name__ == '__main__':
         max_task = trainer.max_task
         if r == 0: 
             for mkey in metric_keys: 
-                avg_metrics[mkey]['global'] = np.zeros((max_task,seed+1))
+                avg_metrics[mkey]['global'] = np.zeros((max_task,args.n_clients*args.n_rounds)) #TODO : should n_clientts replace seed
                 if (not (mkey in global_only)):
-                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,seed+1))
-                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,seed+1))
+                    avg_metrics[mkey]['pt'] = np.zeros((max_task,max_task,args.n_clients*args.n_rounds))
+                    avg_metrics[mkey]['pt-local'] = np.zeros((max_task,max_task,args.n_clients*args.n_rounds))
 
         # train model
         if not args.only_eval_zs:
             avg_metrics = trainer.train(avg_metrics)  ## SHAUN : Jump to trainer.py
-            avg_metrics = trainer.evaluate(avg_metrics)
-        else:
-            avg_metrics = trainer.evaluate_zs(avg_metrics)
         # evaluate model
-            
 
         # save results
         for mkey in metric_keys: 
@@ -184,9 +205,9 @@ if __name__ == '__main__':
                             yaml.dump(yaml_results, yaml_file, default_flow_style=False)
 
         # Print the summary so far
-        print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
-        for mkey in metric_keys: 
-            print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
+        # print('===Summary of experiment repeats:',r+1,'/',args.repeat,'===')
+        # for mkey in metric_keys: 
+        #     print(mkey, ' | mean:', avg_metrics[mkey]['global'][-1,:r+1].mean(), 'std:', avg_metrics[mkey]['global'][-1,:r+1].std())
     
     
 

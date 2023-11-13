@@ -470,6 +470,9 @@ class NormalNN(nn.Module):
         model.eval()
         for i, (input, target, task) in enumerate(dataloader):
 
+            if math.ceil(target.shape[0]/len(self.config['gpuid']))*(len(self.config['gpuid'])-1) >= target.shape[0]: 
+                    print(target.shape[0])
+                    continue
             if self.gpu:
                 with torch.no_grad():
                     input = input.cuda()
@@ -593,7 +596,10 @@ class NormalNN(nn.Module):
     def create_model(self):
         cfg = self.config
         # Define the backbone (MLP, LeNet, VGG, ResNet ... etc) of model
-        model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim,template_style=cfg['template_style']) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
+        if 'clip' in cfg['model_name'] :
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim,template_style=cfg['template_style']) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
+        else :
+            model = models.__dict__[cfg['model_type']].__dict__[cfg['model_name']](out_dim=self.out_dim) ##SHAUN : For L2P, jump to zoo_old/vit_pt_imnet
 
         return model
 
